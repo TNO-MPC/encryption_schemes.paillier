@@ -3,11 +3,12 @@ Implementation of the Asymmetric Encryption Scheme known as Paillier.
 """
 
 from __future__ import annotations
+
+from queue import Queue
 from secrets import randbelow
-from typing import Any, cast, Dict, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-from typing_extensions import get_args
-
+from typing_extensions import get_args  # isort: split
 
 from tno.mpc.encryption_schemes.templates.asymmetric_encryption_scheme import (
     AsymmetricEncryptionScheme,
@@ -19,24 +20,24 @@ from tno.mpc.encryption_schemes.templates.randomized_encryption_scheme import (
     RandomizableCiphertext,
     RandomizedEncryptionScheme,
 )
-from tno.mpc.encryption_schemes.utils import (
-    mod_inv,
-    pow_mod,
-    randprime,
-)
+from tno.mpc.encryption_schemes.utils.fixed_point import FixedPoint
+from tno.mpc.encryption_schemes.utils.utils import mod_inv, pow_mod, randprime
 
 # Check to see if the communication module is available
 try:
-    from tno.mpc.communication.communication import Communication
+    from tno.mpc.communication.httphandlers import HTTPClient
+    from tno.mpc.communication.serialization import Serialization
 
     COMMUNICATION_INSTALLED = True
 except ModuleNotFoundError:
     COMMUNICATION_INSTALLED = False
 
+fxp = FixedPoint.fxp
 
-class CommunicationError(Exception):
+
+class SerializationError(Exception):
     """
-    Communication error for Paillier.
+    Serialization error for Paillier.
     """
 
     def __init__(self) -> None:
@@ -91,33 +92,36 @@ class PaillierPublicKey(PublicKey):
 
     # region Serialization logic
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self, **kwargs: Any) -> Dict[str, Any]:
         """
         Serialization function for public keys, which will be passed to the communication module.
 
-        :raise CommunicationError: When communication library is not installed.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: JSON serialized version of this PaillierPublicKey.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
+            raise SerializationError()
         return {
-            "n": Communication.serialize(self.n),
-            "g": Communication.serialize(self.g),
+            "n": Serialization.serialize(self.n, **kwargs),
+            "g": Serialization.serialize(self.g, **kwargs),
         }
 
     @staticmethod
-    def deserialize(obj: Dict[str, Any]) -> PaillierPublicKey:
+    def deserialize(json_obj: Dict[str, Any], **kwargs: Any) -> PaillierPublicKey:
         """
         Deserialization function for public keys, which will be passed to the communication module.
 
-        :param obj: JSON serialized version of a PaillierPublicKey.
-        :raise CommunicationError: When communication library is not installed.
+        :param json_obj: JSON serialized version of a PaillierPublicKey.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: Deserialized PaillierPublicKey from the given JSON dict.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
+            raise SerializationError()
         return PaillierPublicKey(
-            n=Communication.deserialize(obj["n"]), g=Communication.deserialize(obj["g"])
+            n=Serialization.deserialize(json_obj["n"], **kwargs),
+            g=Serialization.deserialize(json_obj["g"], **kwargs),
         )
 
     # endregion
@@ -170,43 +174,45 @@ class PaillierSecretKey(SecretKey):
 
     # region Serialization logic
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self, **kwargs: Any) -> Dict[str, Any]:
         """
         Serialization function for secret keys, which will be passed to the communication module.
 
-        :raise CommunicationError: When communication library is not installed.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: JSON serialized version of this PaillierSecretKey.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
+            raise SerializationError()
         return {
-            "lambda": Communication.serialize(self.lambda_),
-            "mu": Communication.serialize(self.mu),
-            "n": Communication.serialize(self.n),
+            "lambda": Serialization.serialize(self.lambda_, **kwargs),
+            "mu": Serialization.serialize(self.mu, **kwargs),
+            "n": Serialization.serialize(self.n, **kwargs),
         }
 
     @staticmethod
-    def deserialize(obj: Dict[str, Any]) -> PaillierSecretKey:
+    def deserialize(json_obj: Dict[str, Any], **kwargs: Any) -> PaillierSecretKey:
         """
         Deserialization function for public keys, which will be passed to the communication module
 
-        :param obj: JSON serialized version of a PaillierSecretKey.
-        :raise CommunicationError: When communication library is not installed.
+        :param json_obj: JSON serialized version of a PaillierSecretKey.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: Deserialized PaillierSecretKey from the given JSON dict.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
+            raise SerializationError()
         return PaillierSecretKey(
-            lambda_value=Communication.deserialize(obj["lambda"]),
-            mu=Communication.deserialize(obj["mu"]),
-            n=Communication.deserialize(obj["n"]),
+            lambda_value=Serialization.deserialize(json_obj["lambda"], **kwargs),
+            mu=Serialization.deserialize(json_obj["mu"], **kwargs),
+            n=Serialization.deserialize(json_obj["n"], **kwargs),
         )
 
     # endregion
 
 
 KeyMaterial = Tuple[PaillierPublicKey, PaillierSecretKey]
-Plaintext = Union[int, float]
+Plaintext = Union[int, float, FixedPoint]
 
 
 class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int]):
@@ -215,7 +221,7 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
     and supports homomorphic operations.
     """
 
-    scheme: "Paillier"
+    scheme: Paillier
 
     def __init__(self: PaillierCiphertext, raw_value: int, scheme: Paillier):
         r"""
@@ -264,37 +270,42 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
 
     # region Serialization logic
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(self, **kwargs: Any) -> Dict[str, Any]:
         """
-        Serialization function for paillier ciphertexts, which will be passed to the communication
+        Serialization function for Paillier ciphertexts, which will be passed to the communication
         module.
 
-        :raise CommunicationError: When communication library is not installed.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: JSON serialized version of this PaillierCiphertext.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
+            raise SerializationError()
         return {
-            "value": Communication.serialize(self._raw_value),
-            "scheme": self.scheme.serialize_without_secret_key(),
+            "value": Serialization.serialize(self._raw_value, **kwargs),
+            "scheme": Serialization.serialize(self.scheme, **kwargs),
         }
 
     @staticmethod
-    def deserialize(obj: Dict[str, Any]) -> PaillierCiphertext:
+    def deserialize(json_obj: Dict[str, Any], **kwargs: Any) -> PaillierCiphertext:
         """
-        Deserialization function for paillier ciphertexts, which will be passed to the
+        Deserialization function for Paillier ciphertexts, which will be passed to the
         communication module.
 
-        :param obj: JSON serialized version of a PaillierCiphertext.
-        :raise CommunicationError: When communication library is not installed.
+        :param json_obj: JSON serialized version of a PaillierCiphertext.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: Deserialized PaillierCiphertext from the given JSON dict.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
-        return PaillierCiphertext(
-            raw_value=Communication.deserialize(obj["value"]),
-            scheme=Paillier.deserialize(obj["scheme"]),
+            raise SerializationError()
+        raw_value = Serialization.deserialize(json_obj["value"], **kwargs)
+        scheme = Serialization.deserialize(json_obj["scheme"], **kwargs)
+        ciphertext = PaillierCiphertext(
+            raw_value=raw_value,
+            scheme=scheme,
         )
+        return ciphertext
 
     # endregion
 
@@ -326,7 +337,14 @@ class Paillier(
         secret_key: Optional[PaillierSecretKey],
         precision: int = 0,
         share_secret_key: bool = False,
-        **kwargs: Any,
+        randomizations: Optional[Queue[int]] = None,
+        max_size: int = 100,
+        total: Optional[int] = None,
+        nr_of_threads: int = 1,
+        path: Optional[str] = None,
+        separator: str = ",",
+        start_generation: bool = True,
+        debug: bool = False,
     ):
         """
         Construct a new Paillier encryption scheme, with the given keypair, randomness object,
@@ -338,23 +356,49 @@ class Paillier(
         :param share_secret_key: Boolean value stating whether or not the secret key should be
             included in serialization. This should only be set to True if one is really sure of it.
             (Default: False)
-        :param kwargs: Possible extra arguments.
+        :param debug: flag to determine whether debug information should be displayed
+            (Default: False)
+        :param start_generation: flag that determines whether the scheme starts generating
+            randomness immediately (Default: True)
+        :param randomizations: queue with randomizations. If no queue is given, it creates a
+            fresh one (Default: None)
+        :param max_size: maximum size of the queue (Default: 100)
+        :param total: upper bound on the total amount of randomizations to generate. (Default: None)
+        :param nr_of_threads: number of generation worker threads that should be started
+            (Default: 1)
+        :param path: path (including filename) to the file that contains randomizations.
+            By default no path is given and no randomness is extracted from any files. (Default: "")
+        :param separator: separator for the random values in the given file (Default: ",")
         """
         AsymmetricEncryptionScheme.__init__(
             self, public_key=public_key, secret_key=secret_key
         )
-        RandomizedEncryptionScheme.__init__(self, **kwargs)
+        RandomizedEncryptionScheme.__init__(
+            self,
+            randomizations=randomizations,
+            max_size=max_size,
+            total=total,
+            nr_of_threads=nr_of_threads,
+            path=path,
+            separator=separator,
+            start_generation=start_generation,
+            debug=debug,
+        )
 
         self.precision = precision
-        self.max_value = public_key.n // (2 * 10 ** precision)
-        self.min_value = -(public_key.n - (public_key.n // 2 + 1)) // 10 ** precision
+        self.max_value = int(public_key.n // (2 * 10 ** precision))
+        self.min_value = int(
+            -(public_key.n - (public_key.n // 2 + 1)) // 10 ** precision
+        )
 
         # Variable that determines whether a secret key is sent when the scheme is sent
         # over a communication channel
         self.share_secret_key = share_secret_key
 
+        self.client_history: List[HTTPClient] = []
+
     @staticmethod
-    def generate_key_material(key_length: int) -> KeyMaterial:
+    def generate_key_material(key_length: int) -> KeyMaterial:  # type: ignore[override]  # pylint: disable=arguments-differ
         r"""
         Method to generate key material (PaillierPublicKey and PaillierPrivateKey).
 
@@ -392,8 +436,8 @@ class Paillier(
                 f"This encoding scheme only supports values in the range [{self.min_value};"
                 f"{self.max_value}], {plaintext} is outside that range."
             )
-        encoded_plaintext = round(plaintext * 10 ** self.precision)
-        return EncodedPlaintext(encoded_plaintext, self)
+        plaintext_fxp = fxp(plaintext, self.precision)
+        return EncodedPlaintext(plaintext_fxp.value, self)
 
     def decode(self, encoded_plaintext: EncodedPlaintext[int]) -> Plaintext:
         """
@@ -407,9 +451,7 @@ class Paillier(
             if 2 * encoded_plaintext.value <= self.public_key.n
             else encoded_plaintext.value - self.public_key.n
         )
-        if self.precision > 0:
-            return round(float(value / 10 ** self.precision), self.precision)
-        return value
+        return FixedPoint(value, self.precision)
 
     def _encrypt_raw(
         self,
@@ -452,7 +494,6 @@ class Paillier(
         this ciphertext was 5. this method returns the ciphertext that has -5
         as underlying plaintext. Given a ciphertext $c$ we compute the negated ciphertext $c'$
         such that $c \cdot c' = 1 \mod n^2$
-
 
         :param ciphertext: PaillierCiphertext $c$ of which the underlying plaintext should be
             negated.
@@ -500,7 +541,7 @@ class Paillier(
             self,
         )
 
-    def mul(self, ciphertext: PaillierCiphertext, scalar: int) -> PaillierCiphertext:
+    def mul(self, ciphertext: PaillierCiphertext, scalar: int) -> PaillierCiphertext:  # type: ignore[override]
         """
         Multiply the underlying plaintext value of ciph $c$ with the given scalar $s$.
         We obtain the result by computing $c' = c^s$.
@@ -541,14 +582,26 @@ class Paillier(
 
     def generate_randomness(self) -> int:
         r"""
-        Method to generate randomness $r \in \mathbb{Z}^*_{n^2}$ for Paillier.
+        Method to generate randomness value $r^n \mod n^2$, from a random number
+        $r \in_R \mathbb{Z}^*_{n}$ for Paillier.
 
-        :return: A list containing number_of_randomizations random numbers.
+        :return: A random number.
         """
         random_element = randbelow(self.public_key.n - 1) + 1
         modulus = self.public_key.n_squared
         n = self.public_key.n
         return pow_mod(random_element, n, modulus)
+
+    def random_plaintext(self) -> FixedPoint:
+        """
+        Generate a uniformly random plaintext
+
+        :return: A uniformly random element from the plaintext space represented as a fixed point
+                 number.
+        """
+        min_val_fxp = fxp(self.min_value, target_precision=self.precision)
+        max_val_fxp = fxp(self.max_value, target_precision=self.precision)
+        return FixedPoint.random_range(min_val_fxp, max_val_fxp)
 
     @staticmethod
     def func_l(input_x: int, n: int) -> int:
@@ -562,147 +615,148 @@ class Paillier(
         return (input_x - 1) // n
 
     @classmethod
-    def get_instance(
-        cls: Type["Paillier"],
-        public_key: PaillierPublicKey,
-        secret_key: Optional[PaillierSecretKey],
-        precision: int = 0,
-        share_secret_key: bool = False,
-        **kwargs: Any,
-    ) -> Paillier:
-        """
-        Alternative to the constructor function to obtain a quasi-singleton object.
-        This function can be called whenever a scheme needs to be initiated and ensures that
-        identical calls will return a reference to the same object.
-
-        :param public_key: PaillierPublicKey the (new) instance should have.
-        :param secret_key: PaillierSecretKey the (new) instance should have, can be None,
-            to construct a scheme with only a public key.
-        :param precision: Precision the (new) instance should have.
-        :param share_secret_key: Boolean value for share_secret_key the (new) Paillier instance
-            should have.
-        :param kwargs: regular keyword arguments that would normally go into the constructor
-        :return: Either a newly instantiated scheme or a reference to an already existing scheme
-        """
-        identifier = cls.id_from_arguments(
-            public_key, secret_key, precision, share_secret_key, **kwargs
-        )
-        if identifier in cls._instances:
-            instance = cls._instances[identifier]
-            # assert correct class, since _instances is shared among all EncryptionSchemes
-            assert isinstance(instance, cls)
-            return instance
-        # else
-        instance = cls._instances[identifier] = cls(
-            public_key, secret_key, precision, share_secret_key, **kwargs
-        )
-        cls._instances[identifier] = instance
-        return instance
-
-    @classmethod
-    def id_from_arguments(
+    def id_from_arguments(  # type: ignore[override]
         cls,
         public_key: PaillierPublicKey,
-        secret_key: Optional[PaillierSecretKey],
         precision: int = 0,
-        share_secret_key: bool = False,
-        **kwargs: Any,
     ) -> int:
         """
         Method that turns the arguments for the constructor into an identifier. This identifier is
         used to find constructor calls that would result in identical schemes.
 
         :param public_key: PaillierPublicKey of the Paillier instance.
-        :param secret_key: PaillierSecretKey of the Paillier instance, can be None, to get a
-            scheme with only a public key.
         :param precision: Precision of the Paillier instance
-        :param share_secret_key: Boolean value for share_secret_key of the Paillier instance.
-        :param kwargs: regular keyword arguments
         :return: Identifier of the Paillier instance
         """
-        return hash(
-            (public_key, precision, share_secret_key, secret_key)
-            + tuple(
-                tuple(kwargs[i]) if isinstance(kwargs[i], list) else kwargs[i]
-                for i in kwargs
-            )
-        )
+        return hash((public_key, precision))
 
     # region Serialization logic
 
-    def serialize(self) -> Dict[str, Any]:
+    def serialize(
+        self, *, destination: Optional[HTTPClient] = None, **kwargs: Any
+    ) -> Dict[str, Any]:
         """
         Serialization function for Paillier schemes, which will be passed to the communication
         module. The sharing of the secret key depends on the attribute share_secret_key.
 
-        :raise CommunicationError: When communication library is not installed.
+        :param kwargs: optional extra keyword arguments
+        :param destination: HTTPClient representing where the message will go if applicable
+        :raise SerializationError: When communication library is not installed.
         :return: JSON serialized version of this Paillier scheme.
         """
-        if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
-        if self.share_secret_key:
-            return self.serialize_with_secret_key()
-        return self.serialize_without_secret_key()
 
-    def serialize_with_secret_key(self) -> Dict[str, Any]:
+        if not COMMUNICATION_INSTALLED:
+            raise SerializationError()
+        if self.identifier not in self._instances:
+            self.save_globally()
+        if destination in self.client_history:
+            return {
+                "scheme_id": Serialization.serialize(self.identifier),
+            }
+        if destination is not None and destination not in self.client_history:
+            self.client_history.append(destination)
+        if self.share_secret_key:
+            return self.serialize_with_secret_key(**kwargs)
+        return self.serialize_without_secret_key(**kwargs)
+
+    def serialize_with_secret_key(self, **kwargs: Any) -> Dict[str, Any]:
         """
         Serialization function for Paillier schemes, that does include the secret key.
 
-        :raise CommunicationError: When communication library is not installed.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: JSON serialized version of this Paillier scheme.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
+            raise SerializationError()
         return {
-            "prec": Communication.serialize(self.precision),
-            "pubkey": self.public_key.serialize(),
-            "seckey": self.secret_key.serialize(),
+            "prec": Serialization.serialize(self.precision, **kwargs),
+            "pubkey": Serialization.serialize(self.public_key, **kwargs),
+            "seckey": Serialization.serialize(self.secret_key, **kwargs),
         }
 
-    def serialize_without_secret_key(self) -> Dict[str, Any]:
+    def serialize_without_secret_key(self, **kwargs: Any) -> Dict[str, Any]:
         """
         Serialization function for Paillier schemes, that does not include the secret key.
 
-        :raise CommunicationError: When communication library is not installed.
+        :param kwargs: optional extra keyword arguments
+        :raise SerializationError: When communication library is not installed.
         :return: JSON serialized version of this Paillier scheme (without the secret key).
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
+            raise SerializationError()
         return {
-            "prec": Communication.serialize(self.precision),
-            "pubkey": self.public_key.serialize(),
-            "seckey": None,
+            "prec": Serialization.serialize(self.precision, **kwargs),
+            "pubkey": Serialization.serialize(self.public_key, **kwargs),
         }
 
     @staticmethod
-    def deserialize(obj: Dict[str, Any]) -> Paillier:
+    def deserialize(
+        json_obj: Dict[str, Any], *, origin: Optional[HTTPClient] = None, **_kwargs: Any
+    ) -> Paillier:
         """
         Deserialization function for Paillier schemes, which will be passed to
         the communication module.
 
-        :param obj: JSON serialized version of a Paillier scheme.
-        :raise CommunicationError: When communication library is not installed.
+        :param json_obj: JSON serialized version of a Paillier scheme.
+        :param _kwargs: optional extra keyword arguments
+        :param origin: HTTPClient representing where the message came from if applicable
+        :raise SerializationError: When communication library is not installed.
+        :raise ValueError: When a scheme is sent through ID without any prior communication of the
+            scheme
         :return: Deserialized Paillier scheme from the given JSON dict. Might not have a secret
             key when that was not included in the received serialization.
         """
         if not COMMUNICATION_INSTALLED:
-            raise CommunicationError()
-
-        return Paillier.get_instance(
-            public_key=PaillierPublicKey.deserialize(obj["pubkey"]),
-            secret_key=PaillierSecretKey.deserialize(obj["seckey"])
-            if obj["seckey"] is not None
-            else None,
-            precision=Communication.deserialize(obj["prec"]),
-            nr_of_threads=0,
-            start_generation=False,
-        )
+            raise SerializationError()
+        if "scheme_id" in json_obj:
+            identifier = Serialization.deserialize(json_obj["scheme_id"])
+            paillier: Paillier = Paillier.from_id(identifier)
+            if origin is None:
+                raise ValueError(
+                    f"The scheme was sent through an ID, but the origin is {origin}"
+                )
+            if origin not in paillier.client_history:
+                raise ValueError(
+                    f"The scheme was sent through an ID by {origin.addr}:{origin.port}, "
+                    f"but this scheme was never"
+                    "communicated with this party"
+                )
+        else:
+            pubkey = Serialization.deserialize(json_obj["pubkey"])
+            precision = Serialization.deserialize(json_obj["prec"])
+            # This piece of code is specifically used for the case where sending and receiving
+            # happens between hosts running the same python instance (local network).
+            # In this case, the Paillier scheme that was sent is already available before it
+            # arrives and does not need to be created anymore.
+            identifier = Paillier.id_from_arguments(
+                public_key=pubkey, precision=precision
+            )
+            if identifier in Paillier._instances:
+                paillier = Paillier.from_id(identifier)
+            else:
+                paillier = Paillier(
+                    public_key=pubkey,
+                    secret_key=Serialization.deserialize(json_obj["seckey"])
+                    if "seckey" in json_obj
+                    else None,
+                    precision=precision,
+                    nr_of_threads=0,
+                    start_generation=False,
+                )
+                paillier.save_globally()
+        if origin is not None and origin not in paillier.client_history:
+            paillier.client_history.append(origin)
+        return paillier
 
     # endregion
 
 
-if COMMUNICATION_INSTALLED:
-    Communication.set_serialization_logic(Paillier)
-    Communication.set_serialization_logic(PaillierCiphertext)
-    Communication.set_serialization_logic(PaillierPublicKey)
-    Communication.set_serialization_logic(PaillierSecretKey)
+if (
+    COMMUNICATION_INSTALLED
+    and "Paillier" not in Serialization.new_deserialization_funcs
+):
+    Serialization.set_serialization_logic(Paillier)
+    Serialization.set_serialization_logic(PaillierCiphertext)
+    Serialization.set_serialization_logic(PaillierPublicKey)
+    Serialization.set_serialization_logic(PaillierSecretKey)

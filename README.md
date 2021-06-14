@@ -4,11 +4,13 @@ The TNO MPC lab consists of generic software components, procedures, and functio
 
 The package tno.mpc.encryption_schemes.paillier is part of the TNO Python Toolbox.
 
-*Remark: This cryptography software may not be used in applications that violate international export control legislations.*
+Implementation of the Paillier encryption scheme with support with precomputation of randomness. The encryption scheme supports positive and negative numbers, as well as fixed point encoding of numbers. Homomorphic addition of ciphertexts, negation of ciphertexts, and multiplication of ciphertexts with integral scalars has been included too.
+
+*Limitations in (end-)use: the content of this software package may solely be used for applications that comply with international export control laws.*
 
 ## Documentation
 
-Documentation of the tno.mpc.encryption_schemes.paillier package can be found [here](https://docs.mpc.tno.nl/encryption_schemes/paillier/0.4.3).
+Documentation of the tno.mpc.encryption_schemes.paillier package can be found [here](https://docs.mpc.tno.nl/encryption_schemes/paillier/1.0.3).
 
 ## Install
 
@@ -34,7 +36,6 @@ $ python -m pip install 'tno.mpc.encryption_schemes.paillier[tests]'
 ```
 
 ## Usage
-Implementation of the Paillier encryption scheme with support with precomputation of randomness. The encryption scheme supports positive and negative numbers, as well as fixed point encoding of numbers. Homomorphic addition of ciphertexts, negation of ciphertexts, and multiplication of ciphertexts with integral scalars has been included too.
 
 ```python
 from tno.mpc.encryption_schemes.paillier import Paillier
