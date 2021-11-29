@@ -5,8 +5,10 @@ This module tests the serialization of Paillier instances.
 from typing import Any, Generator, Tuple
 
 import pytest
+
 from tno.mpc.communication import Pool
 from tno.mpc.communication.test.pool_fixtures_http import (  # pylint: disable=unused-import
+    event_loop,
     fixture_pool_http_2p,
 )
 
@@ -16,7 +18,26 @@ from tno.mpc.encryption_schemes.paillier import (
     PaillierPublicKey,
     PaillierSecretKey,
 )
-from tno.mpc.encryption_schemes.paillier.test import paillier_scheme
+
+
+def paillier_scheme(with_precision: bool) -> Paillier:
+    """
+    Constructs a Paillier scheme
+
+    :param with_precision: boolean specifying whether to use precision in scheme
+    :return: Initialized Paillier scheme with, or without, precision
+    """
+    if with_precision:
+        return Paillier.from_security_parameter(
+            key_length=1024,
+            precision=10,
+            nr_of_threads=3,
+            debug=False,
+            start_generation=False,
+        )
+    return Paillier.from_security_parameter(
+        key_length=1024, nr_of_threads=3, debug=False, start_generation=False
+    )
 
 
 def fibonacci_generator(elements: int) -> Generator[int, None, None]:

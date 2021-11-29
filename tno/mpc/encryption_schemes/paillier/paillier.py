@@ -221,7 +221,7 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
     and supports homomorphic operations.
     """
 
-    scheme: Paillier
+    scheme: Paillier  # type: ignore[assignment]
 
     def __init__(self: PaillierCiphertext, raw_value: int, scheme: Paillier):
         r"""

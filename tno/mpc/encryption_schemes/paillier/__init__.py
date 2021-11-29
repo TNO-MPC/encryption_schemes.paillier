@@ -16,4 +16,4 @@ from tno.mpc.encryption_schemes.paillier.paillier import (
     PaillierSecretKey as PaillierSecretKey,
 )
 
-__version__ = "1.0.3"
+__version__ = "1.1.2"

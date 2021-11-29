@@ -1,16 +1,20 @@
 """
 This module tests the construction and use of Paillier instances.
 """
-
-from time import time
 from typing import Union
 
 import pytest
+from _pytest.fixtures import FixtureRequest
+
 from tno.mpc.encryption_schemes.utils import mod_inv
 from tno.mpc.encryption_schemes.utils.fixed_point import FixedPoint
 
 from tno.mpc.encryption_schemes.paillier import Paillier, PaillierCiphertext
-from tno.mpc.encryption_schemes.paillier.test import paillier_scheme
+from tno.mpc.encryption_schemes.paillier.test import (  # pylint: disable=unused-import
+    fixture_paillier_scheme,
+    fixture_paillier_scheme_with_precision,
+    fixture_paillier_scheme_without_precision,
+)
 
 test_values_integers = list(range(-20, 20))
 test_values_floats = [float(_) / 40 for _ in range(-20, 20)]
@@ -25,111 +29,106 @@ test_values_float_int_pairs = [
 ] + [(round(-i * 10 ** -3, 3), i + 1) for i in range(20)]
 
 
-@pytest.mark.parametrize("with_precision", (True, False))
-def test_setup(with_precision: bool) -> None:
+def test_setup(paillier_scheme: Paillier) -> None:
     """
     Test the correctness of the Paillier initializer.
 
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param paillier_scheme: a Paillier instance
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
-    mu = scheme.secret_key.mu
-    g = scheme.public_key.g
-    n = scheme.public_key.n
-    n_squared = scheme.public_key.n_squared
-    lambda_ = scheme.secret_key.lambda_
-    mu_prime = mod_inv(scheme.func_l(pow(g, lambda_, n_squared), n), n)
-    scheme.shut_down()
+    mu = paillier_scheme.secret_key.mu
+    g = paillier_scheme.public_key.g
+    n = paillier_scheme.public_key.n
+    n_squared = paillier_scheme.public_key.n_squared
+    lambda_ = paillier_scheme.secret_key.lambda_
+    mu_prime = mod_inv(paillier_scheme.func_l(pow(g, lambda_, n_squared), n), n)
     assert mu == mu_prime
 
 
-@pytest.mark.parametrize("with_precision", (True, False))
-def test_different_inits(with_precision: bool) -> None:
+def test_different_inits(paillier_scheme: Paillier) -> None:
     """
     Test different initializer of the Paillier scheme.
 
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param paillier_scheme: a Paillier instance
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
-    public_key = scheme.public_key
-    secret_key = scheme.secret_key
-    precision = scheme.precision
+    public_key = paillier_scheme.public_key
+    secret_key = paillier_scheme.secret_key
+    precision = paillier_scheme.precision
     same_scheme = Paillier(public_key, secret_key, precision=precision)
     same_scheme.shut_down()
-    scheme.shut_down()
-    assert scheme == same_scheme
+    assert paillier_scheme == same_scheme
 
 
 @pytest.mark.parametrize(
-    "value, with_precision",
-    [(_, True) for _ in test_values_floats]
-    + [(_, True) for _ in test_values_integers]
-    + [(_, False) for _ in test_values_integers],
+    "value, scheme_fixture",
+    [(_, "paillier_scheme_with_precision") for _ in test_values_floats]
+    + [(_, "paillier_scheme_with_precision") for _ in test_values_integers]
+    + [(_, "paillier_scheme_without_precision") for _ in test_values_integers],
 )
-def test_encryption(value: Union[float, int], with_precision: bool) -> None:
+def test_encryption(
+    value: Union[float, int], scheme_fixture: str, request: FixtureRequest
+) -> None:
     """
     Test encryption/decryption in the Paillier scheme.
 
     :param value: plaintext
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param scheme_fixture: name of a fixture for a Paillier instance
+    :param request: pytest parameter specifying the fixture to use
     """
-    scheme = paillier_scheme(with_precision)
+    scheme = request.getfixturevalue(scheme_fixture)
     fxp_value = FixedPoint.fxp(value)
-    scheme.boot_generation()
     encrypted_value = scheme.encrypt(value)
     decrypted_value = scheme.decrypt(encrypted_value)
-    scheme.shut_down()
     assert fxp_value == decrypted_value
 
 
 @pytest.mark.parametrize(
-    "value, with_precision",
-    [(_, True) for _ in test_values_floats]
-    + [(_, True) for _ in test_values_integers]
-    + [(_, False) for _ in test_values_integers],
+    "value, scheme_fixture",
+    [(_, "paillier_scheme_with_precision") for _ in test_values_floats]
+    + [(_, "paillier_scheme_with_precision") for _ in test_values_integers]
+    + [(_, "paillier_scheme_without_precision") for _ in test_values_integers],
 )
 def test_encryption_with_rerandomization(
-    value: Union[float, int], with_precision: bool
+    value: Union[float, int], scheme_fixture: str, request: FixtureRequest
 ) -> None:
     """
     Test encryption/decryption in the Paillier scheme with rerandomization of the ciphertext.
 
     :param value: plaintext
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param scheme_fixture: name of a fixture for a Paillier instance
+    :param request: pytest parameter specifying the fixture to use
     """
-    scheme = paillier_scheme(with_precision)
+    scheme = request.getfixturevalue(scheme_fixture)
     fxp_value = FixedPoint.fxp(value)
-    scheme.boot_generation()
     encrypted_value: PaillierCiphertext = scheme.encrypt(fxp_value)
     decrypted_value = scheme.decrypt(encrypted_value)
     encrypted_value_prime = encrypted_value.copy()
     encrypted_value_prime.randomize()
-    scheme.shut_down()
     assert encrypted_value != encrypted_value_prime
     assert fxp_value == decrypted_value
 
 
 @pytest.mark.parametrize(
-    "value_1, value_2, with_precision",
-    [_ + (True,) for _ in test_values_float_pairs]
-    + [_ + (True,) for _ in test_values_integer_pairs]
-    + [_ + (True,) for _ in test_values_float_int_pairs]
-    + [_ + (False,) for _ in test_values_integer_pairs],
+    "value_1, value_2, scheme_fixture",
+    [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_pairs]
+    + [_ + ("paillier_scheme_with_precision",) for _ in test_values_integer_pairs]
+    + [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_int_pairs]
+    + [_ + ("paillier_scheme_without_precision",) for _ in test_values_integer_pairs],
 )
 def test_homomorphic_addition(
-    value_1: Union[float, int], value_2: Union[float, int], with_precision: bool
+    value_1: Union[float, int],
+    value_2: Union[float, int],
+    scheme_fixture: str,
+    request: FixtureRequest,
 ) -> None:
     """
     Test homomorphic addition of two encrypted values.
 
     :param value_1: first plaintext value
     :param value_2: second plaintext value
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param scheme_fixture: name of a fixture for a Paillier instance
+    :param request: pytest parameter specifying the fixture to use
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
+    scheme = request.getfixturevalue(scheme_fixture)
     encrypted_value_1 = scheme.encrypt(value_1)
     encrypted_value_2 = scheme.encrypt(value_2)
     encrypted_sum_both_enc = encrypted_value_1 + encrypted_value_2
@@ -139,30 +138,31 @@ def test_homomorphic_addition(
     fxp_1 = FixedPoint.fxp(value_1, scheme.precision)
     fxp_2 = FixedPoint.fxp(value_2, scheme.precision)
     correct_sum = fxp_1 + fxp_2
-    scheme.shut_down()
     assert decrypted_sum_both_enc == decrypted_sum_plain1 == correct_sum
 
 
 @pytest.mark.parametrize(
-    "value_1, value_2, with_precision",
-    [_ + (True,) for _ in test_values_float_pairs]
-    + [_ + (True,) for _ in test_values_integer_pairs]
-    + [_ + (True,) for _ in test_values_float_int_pairs]
-    + [_ + (False,) for _ in test_values_integer_pairs],
+    "value_1, value_2, scheme_fixture",
+    [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_pairs]
+    + [_ + ("paillier_scheme_with_precision",) for _ in test_values_integer_pairs]
+    + [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_int_pairs]
+    + [_ + ("paillier_scheme_without_precision",) for _ in test_values_integer_pairs],
 )
 def test_homomorphic_subtraction(
-    value_1: Union[float, int], value_2: Union[float, int], with_precision: bool
+    value_1: Union[float, int],
+    value_2: Union[float, int],
+    scheme_fixture: str,
+    request: FixtureRequest,
 ) -> None:
     """
     Test homomorphic subtraction of two encrypted values, both __sub__ and __rsub__.
 
     :param value_1: first plaintext value
     :param value_2: second plaintext value
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param scheme_fixture: name of a fixture for a Paillier instance
+    :param request: pytest parameter specifying the fixture to use
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
-
+    scheme = request.getfixturevalue(scheme_fixture)
     fxp_1 = FixedPoint.fxp(value_1, scheme.precision)
     fxp_2 = FixedPoint.fxp(value_2, scheme.precision)
     encrypted_value_1 = scheme.encrypt(value_1)
@@ -178,47 +178,50 @@ def test_homomorphic_subtraction(
     encrypted_diff_with_plain2 = encrypted_value_1 - value_2
     decrypted_diff_with_plain2 = scheme.decrypt(encrypted_diff_with_plain2)
 
-    scheme.shut_down()
-
     assert decrypted_diff_both_enc == correct_diff
     assert decrypted_diff_with_plain1 == correct_diff
     assert decrypted_diff_with_plain2 == correct_diff
 
 
 @pytest.mark.parametrize(
-    "value_1, value_2, with_precision",
-    [_ + (True,) for _ in test_values_float_pairs]
-    + [_ + (True,) for _ in test_values_integer_pairs]
-    + [_ + (True,) for _ in test_values_float_int_pairs]
-    + [_ + (False,) for _ in test_values_integer_pairs],
+    "value_1, value_2, scheme_fixture",
+    [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_pairs]
+    + [_ + ("paillier_scheme_with_precision",) for _ in test_values_integer_pairs]
+    + [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_int_pairs]
+    + [_ + ("paillier_scheme_without_precision",) for _ in test_values_integer_pairs],
 )
 def test_homomorphic_multiplication(
-    value_1: Union[float, int], value_2: Union[float, int], with_precision: bool
+    value_1: Union[float, int],
+    value_2: Union[float, int],
+    scheme_fixture: str,
+    request: FixtureRequest,
 ) -> None:
     """
     Test homomorphic multiplication of two encrypted values. (The scheme should throw an error)
 
     :param value_1: first plaintext value
     :param value_2: second plaintext value
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param scheme_fixture: name of a fixture for a Paillier instance
+    :param request: pytest parameter specifying the fixture to use
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
+    scheme = request.getfixturevalue(scheme_fixture)
     encrypted_value_1 = scheme.encrypt(value_1)
     encrypted_value_2 = scheme.encrypt(value_2)
-    scheme.shut_down()
     with pytest.raises(TypeError):
         _encrypted_sum = encrypted_value_1 * encrypted_value_2
 
 
 @pytest.mark.parametrize(
-    "value_1, value_2, with_precision",
-    [_ + (True,) for _ in test_values_float_pairs]
-    + [_ + (True,) for _ in test_values_float_int_pairs]
-    + [_ + (False,) for _ in test_values_float_int_pairs],
+    "value_1, value_2, scheme_fixture",
+    [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_pairs]
+    + [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_int_pairs]
+    + [_ + ("paillier_scheme_without_precision",) for _ in test_values_float_int_pairs],
 )
 def test_homomorphic_scalar_multiplication_type_error(
-    value_1: int, value_2: Union[float, int], with_precision: bool
+    value_1: int,
+    value_2: Union[float, int],
+    scheme_fixture: str,
+    request: FixtureRequest,
 ) -> None:
     """
     Test the multiplication of an encrypted value with a plaintext float value.
@@ -226,33 +229,35 @@ def test_homomorphic_scalar_multiplication_type_error(
 
     :param value_1: first plaintext value
     :param value_2: second plaintext value
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param scheme_fixture: name of a fixture for a Paillier instance
+    :param request: pytest parameter specifying the fixture to use
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
+    scheme = request.getfixturevalue(scheme_fixture)
     encrypted_value_2 = scheme.encrypt(value_2)
-    scheme.shut_down()
     with pytest.raises(TypeError):
         _ = encrypted_value_2 * value_1
 
 
 @pytest.mark.parametrize(
-    "value_1, value_2, with_precision",
-    [_ + (True,) for _ in test_values_float_int_pairs]
-    + [_ + (False,) for _ in test_values_integer_pairs],
+    "value_1, value_2, scheme_fixture",
+    [_ + ("paillier_scheme_with_precision",) for _ in test_values_float_int_pairs]
+    + [_ + ("paillier_scheme_without_precision",) for _ in test_values_integer_pairs],
 )
 def test_homomorphic_scalar_multiplication(
-    value_1: Union[float, int], value_2: int, with_precision: bool
+    value_1: Union[float, int],
+    value_2: int,
+    scheme_fixture: str,
+    request: FixtureRequest,
 ) -> None:
     """
     Test the multiplication of an encrypted integer value with a plaintext integer value.
 
     :param value_1: to be encrypted plaintext value
     :param value_2: scalar value
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param scheme_fixture: name of a fixture for a Paillier instance
+    :param request: pytest parameter specifying the fixture to use
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
+    scheme = request.getfixturevalue(scheme_fixture)
     fxp_1 = FixedPoint.fxp(value_1, scheme.precision)
     fxp_2 = FixedPoint.fxp(value_2, scheme.precision)
     encrypted_value_1 = scheme.encrypt(value_1)
@@ -261,36 +266,17 @@ def test_homomorphic_scalar_multiplication(
     decrypted_prod_1 = scheme.decrypt(encrypted_prod_1)
     decrypted_prod_2 = scheme.decrypt(encrypted_prod_2)
     correct_prod = fxp_1 * fxp_2
-    scheme.shut_down()
     assert correct_prod == decrypted_prod_1
     assert correct_prod == decrypted_prod_2
 
 
-@pytest.mark.parametrize("with_precision", (True, False))
-def test_plaintext_ints(with_precision: bool) -> None:
+def test_plaintext_ints(paillier_scheme: Paillier) -> None:
     """
     Test if the random_plaintext functionality produces values in the right range for schemes.
 
-    :param with_precision: boolean specifying whether to use precision in scheme
+    :param paillier_scheme: a Paillier instance
     """
-    scheme = paillier_scheme(with_precision)
-    scheme.shut_down()
     for _ in range(100):
-        mask = scheme.random_plaintext()
-        assert mask.precision == scheme.precision
-        assert scheme.min_value <= mask <= scheme.max_value
-
-
-def _test_time(with_precision: bool) -> None:
-    """
-    Determine the runtime of one encryption.
-
-    :param with_precision: boolean specifying whether to use precision in scheme
-    """
-    scheme = paillier_scheme(with_precision)
-    start_time = time()
-    for value in range(50):
-        scheme.encrypt(value)
-    test_time = time() - start_time
-    print(test_time / 100)
-    assert True
+        mask = paillier_scheme.random_plaintext()
+        assert mask.precision == paillier_scheme.precision
+        assert paillier_scheme.min_value <= mask <= paillier_scheme.max_value
