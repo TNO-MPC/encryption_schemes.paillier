@@ -11,7 +11,7 @@ Implementation of the Paillier encryption scheme with support with precomputatio
 
 ## Documentation
 
-Documentation of the tno.mpc.encryption_schemes.paillier package can be found [here](https://docs.mpc.tno.nl/encryption_schemes/paillier/1.1.2).
+Documentation of the tno.mpc.encryption_schemes.paillier package can be found [here](https://docs.mpc.tno.nl/encryption_schemes/paillier/1.2.1).
 
 ## Install
 
