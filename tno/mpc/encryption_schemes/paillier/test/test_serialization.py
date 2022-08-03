@@ -1,7 +1,7 @@
 """
 This module tests the serialization of Paillier instances.
 """
-
+import asyncio
 from typing import Any, Generator, Tuple
 
 import pytest
@@ -10,14 +10,18 @@ from tno.mpc.communication import Pool
 from tno.mpc.communication.test.pool_fixtures_http import (  # pylint: disable=unused-import
     event_loop,
     fixture_pool_http_2p,
+    fixture_pool_http_3p,
 )
 
 from tno.mpc.encryption_schemes.paillier import (
+    EncryptionSchemeWarning,
     Paillier,
     PaillierCiphertext,
     PaillierPublicKey,
     PaillierSecretKey,
 )
+from tno.mpc.encryption_schemes.paillier.paillier import WARN_UNFRESH_SERIALIZATION
+from tno.mpc.encryption_schemes.paillier.test import encrypt_with_freshness
 
 
 def paillier_scheme(with_precision: bool) -> Paillier:
@@ -137,9 +141,38 @@ def test_serialization_paillier_share(with_precision: bool) -> None:
     + [(_, False) for _ in fibonacci_generator(25)]
     + [(_ / 1e6, True) for _ in fibonacci_generator(25)],
 )
-def test_serialization_ciphertext(value: int, with_precision: bool) -> None:
+def test_serialization_randomization_unfresh(value: int, with_precision: bool) -> None:
     """
-    Test to determine whether the paillier ciphertext serialization works properly.
+    Test to determine whether the paillier ciphertext serialization correctly randomizes non-fresh
+    ciphertexts.
+
+    :param value: value to serialize
+    :param with_precision: boolean specifying whether to use precision in scheme
+    """
+    scheme = paillier_scheme(with_precision)
+    scheme.boot_generation()
+    ciphertext = scheme.unsafe_encrypt(value)
+    val_pre_serialize = ciphertext.peek_value()
+
+    with pytest.warns(EncryptionSchemeWarning, match=WARN_UNFRESH_SERIALIZATION):
+        ciphertext.serialize()
+    val_post_serialize = ciphertext.peek_value()
+    scheme.shut_down()
+
+    assert val_pre_serialize != val_post_serialize
+    assert ciphertext.fresh is False
+
+
+@pytest.mark.parametrize(
+    "value, with_precision",
+    [(_, True) for _ in fibonacci_generator(25)]
+    + [(_, False) for _ in fibonacci_generator(25)]
+    + [(_ / 1e6, True) for _ in fibonacci_generator(25)],
+)
+def test_serialization_randomization_fresh(value: int, with_precision: bool) -> None:
+    """
+    Test to determine whether the paillier ciphertext serialization correctly does not randomize
+    fresh ciphertexts.
 
     :param value: value to serialize
     :param with_precision: boolean specifying whether to use precision in scheme
@@ -147,9 +180,41 @@ def test_serialization_ciphertext(value: int, with_precision: bool) -> None:
     scheme = paillier_scheme(with_precision)
     scheme.boot_generation()
     ciphertext = scheme.encrypt(value)
+    val_pre_serialize = ciphertext.peek_value()
+
+    ciphertext.serialize()
+    val_post_serialize = ciphertext.peek_value()
+    scheme.shut_down()
+
+    assert val_pre_serialize == val_post_serialize
+    assert ciphertext.fresh is False
+
+
+@pytest.mark.parametrize(
+    "value, with_precision",
+    [(_, True) for _ in fibonacci_generator(25)]
+    + [(_, False) for _ in fibonacci_generator(25)]
+    + [(_ / 1e6, True) for _ in fibonacci_generator(25)],
+)
+@pytest.mark.parametrize("fresh", (True, False))
+def test_serialization_ciphertext(
+    value: int, fresh: bool, with_precision: bool
+) -> None:
+    """
+    Test to determine whether the paillier ciphertext serialization works properly.
+
+    :param value: value to serialize
+    :param fresh: freshness of ciphertext
+    :param with_precision: boolean specifying whether to use precision in scheme
+    """
+    scheme = paillier_scheme(with_precision)
+    scheme.boot_generation()
+    ciphertext = encrypt_with_freshness(value, scheme, fresh)
     ciphertext_prime = PaillierCiphertext.deserialize(ciphertext.serialize())
     scheme.shut_down()
     assert ciphertext == ciphertext_prime
+    assert ciphertext.fresh is False
+    assert ciphertext_prime.fresh is False
 
 
 @pytest.mark.parametrize("with_precision", (True, False))
@@ -300,3 +365,50 @@ async def test_sending_and_receiving(
 
     secret_key_prime = await send_and_receive(pool_http_2p, scheme.secret_key)
     assert scheme.secret_key == secret_key_prime
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_precision", (True, False))
+async def test_broadcasting(
+    pool_http_3p: Tuple[Pool, Pool, Pool], with_precision: bool
+) -> None:
+    """
+    This test ensures that broadcasting ciphertexts works as expected.
+
+    :param pool_http_3p: collection of communication pools
+    :param with_precision: boolean specifying whether to use precision in scheme
+    """
+    scheme = paillier_scheme(with_precision)
+    await asyncio.gather(
+        *(
+            pool_http_3p[0].send("local1", scheme),
+            pool_http_3p[0].send("local2", scheme),
+        )
+    )
+    scheme_prime_1, scheme_prime_2 = await asyncio.gather(
+        *(pool_http_3p[1].recv("local0"), pool_http_3p[2].recv("local0"))
+    )
+    assert Paillier.from_id(scheme.identifier) is scheme
+    assert scheme_prime_1 is scheme
+    assert scheme_prime_2 is scheme
+    # the scheme has been sent once to each party, so the httpclients should be in the scheme's client
+    # history.
+    assert len(scheme.client_history) == 3
+    assert pool_http_3p[0].pool_handlers["local1"] in scheme.client_history
+    assert pool_http_3p[0].pool_handlers["local2"] in scheme.client_history
+    assert pool_http_3p[1].pool_handlers["local0"] in scheme.client_history
+    assert pool_http_3p[2].pool_handlers["local0"] in scheme.client_history
+
+    encryption = scheme.encrypt(plaintext=42)
+    await pool_http_3p[0].broadcast(encryption, "msg_id")
+    encryption_prime_1, encryption_prime_2 = await asyncio.gather(
+        *(
+            pool_http_3p[1].recv("local0", "msg_id"),
+            pool_http_3p[2].recv("local0", "msg_id"),
+        )
+    )
+
+    encryption_prime_1.scheme.shut_down()
+
+    assert encryption == encryption_prime_1
+    assert encryption == encryption_prime_2
