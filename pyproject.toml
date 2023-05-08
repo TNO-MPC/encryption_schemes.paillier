@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tno.mpc.encryption_schemes.paillier"
+description = "Implementation of the Paillier cryptosystem"
+readme = "README.md"
+authors = [{name = "TNO MPC Lab", email = "mpclab@tno.nl"}]
+maintainers = [{name = "TNO MPC Lab", email = "mpclab@tno.nl"}]
+keywords = [
+    "TNO",
+    "MPC",
+    "multi-party computation",
+    "encryption schemes",
+    "paillier",
+    "cryptosystem",
+]
+license = {text = "Apache License, Version 2.0"}
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "Typing :: Typed",
+    "Topic :: Security :: Cryptography",
+]
+urls = {Homepage = "https://mpc.tno.nl/", Documentation = "https://docs.mpc.tno.nl/encryption_schemes/paillier/3.0.1", Source = "https://github.com/TNO-MPC/encryption_schemes.paillier"}
+dynamic = ["version"]
+requires-python = ">=3.7"
+dependencies = [
+    "tno.mpc.encryption_schemes.templates~=4.1",
+    "tno.mpc.encryption_schemes.utils~=0.9",
+    "typing_extensions; python_version<'3.8'",
+]
+
+[project.optional-dependencies]
+gmpy = [
+    "tno.mpc.encryption_schemes.utils[gmpy]~=0.9",
+]
+communication = [
+    "tno.mpc.communication~=4.0",
+]
+tests = [
+    "pytest",
+    "pytest-asyncio",
+    "tno.mpc.communication~=4.0",
+]
+
+[tool.setuptools]
+platforms = ["any"]
+
+[tool.setuptools.dynamic]
+version = {attr = "tno.mpc.encryption_schemes.paillier.__version__"}
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+

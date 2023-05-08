@@ -5,30 +5,23 @@ Implementation of the Asymmetric Encryption Scheme known as Paillier.
 from __future__ import annotations
 
 import numbers
+import sys
 import warnings
-from queue import Queue
+from functools import partial
 from secrets import randbelow
-from typing import Any, List, Optional, Tuple, Union, cast
+from typing import Any, Tuple, Union, cast
 
-from typing_extensions import get_args, TypedDict  # isort: split
-
-import warnings
-
-from tno.mpc.encryption_schemes.templates.asymmetric_encryption_scheme import (
+from tno.mpc.encryption_schemes.templates import (
     AsymmetricEncryptionScheme,
-    PublicKey,
-    SecretKey,
-)
-from tno.mpc.encryption_schemes.templates.encryption_scheme import (
     EncodedPlaintext,
     EncryptionSchemeWarning,
-)
-from tno.mpc.encryption_schemes.templates.randomized_encryption_scheme import (
+    PublicKey,
     RandomizableCiphertext,
     RandomizedEncryptionScheme,
+    SecretKey,
+    SerializationError,
 )
-from tno.mpc.encryption_schemes.utils.fixed_point import FixedPoint
-from tno.mpc.encryption_schemes.utils.utils import mod_inv, pow_mod, randprime
+from tno.mpc.encryption_schemes.utils import FixedPoint, mod_inv, pow_mod, randprime
 
 # Check to see if the communication module is available
 try:
@@ -39,30 +32,23 @@ try:
 except ModuleNotFoundError:
     COMMUNICATION_INSTALLED = False
 
+if sys.version_info < (3, 8):
+    from typing_extensions import TypedDict, get_args
+else:
+    from typing import TypedDict, get_args
+
 fxp = FixedPoint.fxp
 
 WARN_INEFFICIENT_HOM_OPERATION = (
     "Identified a fresh ciphertext as input to a homomorphic operation, which is no longer fresh "
     "after the operation. This indicates a potential inefficiency if the non-fresh input may also "
-    "used in other operations (unused randomness). Solution: randomize ciphertexts as late as "
+    "be used in other operations (unused randomness). Solution: randomize ciphertexts as late as "
     "possible, e.g. by encrypting them with scheme.unsafe_encrypt and randomizing them just "
     "before sending. Note that the serializer randomizes non-fresh ciphertexts by default."
 )
 WARN_UNFRESH_SERIALIZATION = (
     "Serializer identified and rerandomized a non-fresh ciphertext."
 )
-
-
-class SerializationError(Exception):
-    """
-    Serialization error for Paillier.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(
-            "The tno.mpc.communication package has not been installed. "
-            "Please install this package before you call the serialisation code."
-        )
 
 
 class PaillierPublicKey(PublicKey):
@@ -262,13 +248,13 @@ KeyMaterial = Tuple[PaillierPublicKey, PaillierSecretKey]
 Plaintext = Union[numbers.Integral, float, FixedPoint]
 
 
-class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int]):
+class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int, int]):
     """
     Ciphertext for the Paillier asymmetric encryption scheme. This ciphertext is rerandomizable
     and supports homomorphic operations.
     """
 
-    scheme: Paillier  # type: ignore[assignment]
+    scheme: Paillier
 
     def __init__(
         self: PaillierCiphertext,
@@ -346,7 +332,9 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
         if not self.fresh:
-            warnings.warn(WARN_UNFRESH_SERIALIZATION, EncryptionSchemeWarning)
+            warnings.warn(
+                WARN_UNFRESH_SERIALIZATION, EncryptionSchemeWarning, stacklevel=2
+            )
             self.randomize()
         self._fresh = False
         return {
@@ -388,7 +376,9 @@ class Paillier(
         PaillierPublicKey,
         PaillierSecretKey,
     ],
-    RandomizedEncryptionScheme[KeyMaterial, Plaintext, int, int, PaillierCiphertext],
+    RandomizedEncryptionScheme[
+        KeyMaterial, Plaintext, int, int, PaillierCiphertext, int
+    ],
 ):
     """
     Paillier Encryption Scheme. This is an AsymmetricEncryptionScheme, with a public and secret key.
@@ -402,16 +392,9 @@ class Paillier(
     def __init__(
         self,
         public_key: PaillierPublicKey,
-        secret_key: Optional[PaillierSecretKey],
+        secret_key: PaillierSecretKey | None,
         precision: int = 0,
         share_secret_key: bool = False,
-        randomizations: Optional[Queue[int]] = None,
-        max_size: int = 100,
-        total: Optional[int] = None,
-        nr_of_threads: int = 1,
-        path: Optional[str] = None,
-        separator: str = ",",
-        start_generation: bool = True,
         debug: bool = False,
     ):
         """
@@ -419,34 +402,22 @@ class Paillier(
         precision for fixed point encryption.
 
         :param public_key: Public key for this Paillier Scheme.
-        :param secret_key: Optional Secret Key for this Paillier Scheme (None when unknown).
+        :param secret_key: Secret Key for this Paillier Scheme.
         :param precision: Fixed point precision of this encoding, in decimal places.
         :param share_secret_key: Boolean value stating whether or not the secret key should be
             included in serialization. This should only be set to True if one is really sure of it.
-        :param randomizations: queue with randomizations. If no queue is given, it creates a
-            fresh one.
-        :param max_size: maximum size of the queue.
-        :param total: upper bound on the total amount of randomizations to generate.
-        :param nr_of_threads: number of generation worker threads that should be started.
-        :param path: path (including filename) to the file that contains randomizations.
-            By default no path is given and no randomness is extracted from any files.
-        :param separator: separator for the random values in the given file.
-        :param start_generation: flag that determines whether the scheme starts generating
-            randomness immediately.
         :param debug: flag to determine whether debug information should be displayed.
         """
+        self._generate_randomness = partial(  # type: ignore[method-assign]
+            self._generate_randomness_from_args,
+            public_n=public_key.n,
+            public_n_squared=public_key.n_squared,
+        )
         AsymmetricEncryptionScheme.__init__(
             self, public_key=public_key, secret_key=secret_key
         )
         RandomizedEncryptionScheme.__init__(
             self,
-            randomizations=randomizations,
-            max_size=max_size,
-            total=total,
-            nr_of_threads=nr_of_threads,
-            path=path,
-            separator=separator,
-            start_generation=start_generation,
             debug=debug,
         )
 
@@ -458,10 +429,12 @@ class Paillier(
         # over a communication channel
         self.share_secret_key = share_secret_key
 
-        self.client_history: List[HTTPClient] = []
+        self.client_history: list[HTTPClient] = []
 
     @staticmethod
-    def generate_key_material(key_length: int) -> KeyMaterial:  # type: ignore[override]  # pylint: disable=arguments-differ
+    def generate_key_material(
+        key_length: int,
+    ) -> KeyMaterial:  # pylint: disable=arguments-differ
         r"""
         Method to generate key material (PaillierPublicKey and PaillierPrivateKey).
 
@@ -476,7 +449,7 @@ class Paillier(
             p = randprime(2 ** (key_length // 2 - 1), 2 ** (key_length // 2))
             q = randprime(2 ** (key_length // 2 - 1), 2 ** (key_length // 2))
             while p == q:
-                q = randprime(2 ** (key_length - 1), 2**key_length)
+                q = randprime(2 ** (key_length // 2 - 1), 2 ** (key_length // 2))
             n = p * q
         lambda_ = (p - 1) * (q - 1)
         g = n + 1
@@ -566,7 +539,9 @@ class Paillier(
         """
         new_ciphertext_fresh = ciphertext.fresh
         if new_ciphertext_fresh:
-            warnings.warn(WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning)
+            warnings.warn(
+                WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning, stacklevel=2
+            )
 
         # ciphertext.get_value() automatically marks ciphertext as not fresh
         return PaillierCiphertext(
@@ -578,7 +553,7 @@ class Paillier(
     def add(
         self,
         ciphertext_1: PaillierCiphertext,
-        ciphertext_2: Union[PaillierCiphertext, Plaintext],
+        ciphertext_2: PaillierCiphertext | Plaintext,
     ) -> PaillierCiphertext:
         r"""
         Secure addition.
@@ -610,7 +585,9 @@ class Paillier(
 
         new_ciphertext_fresh = ciphertext_1.fresh or ciphertext_2.fresh
         if new_ciphertext_fresh:
-            warnings.warn(WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning)
+            warnings.warn(
+                WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning, stacklevel=2
+            )
 
         # ciphertext.get_value() automatically marks ciphertext as not fresh
         return PaillierCiphertext(
@@ -651,7 +628,9 @@ class Paillier(
 
         new_ciphertext_fresh = ciphertext.fresh
         if new_ciphertext_fresh:
-            warnings.warn(WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning)
+            warnings.warn(
+                WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning, stacklevel=2
+            )
 
         # ciphertext.get_value() automatically marks ciphertext as not fresh
         return PaillierCiphertext(
@@ -676,20 +655,27 @@ class Paillier(
             and self.public_key == other.public_key
         )
 
-    def generate_randomness(self) -> int:
+    @staticmethod
+    def _generate_randomness_from_args(
+        public_n: int, public_n_squared: int | None = None
+    ) -> int:
         r"""
         Method to generate randomness value $r^n \mod n^2$, from a random number
         $r \in_R \mathbb{Z}^*_{n}$ for Paillier.
 
+        :param public_n: Modulus of the message space.
+        :param public_n_squared: Square of public_n. Can be passed for efficiency reasons.
         :return: A random number.
         """
-        random_element = randbelow(self.public_key.n - 1) + 1
-        return pow_mod(random_element, self.public_key.n, self.public_key.n_squared)
+        if not public_n_squared:
+            public_n_squared = public_n**2
+        random_element = randbelow(public_n - 1) + 1
+        return pow_mod(random_element, public_n, public_n_squared)
 
     def random_plaintext(
         self,
-        lower_bound: Optional[Plaintext] = None,
-        upper_bound: Optional[Plaintext] = None,
+        lower_bound: Plaintext | None = None,
+        upper_bound: Plaintext | None = None,
     ) -> FixedPoint:
         """
         Generate a uniformly random plaintext from the given interval.
@@ -747,7 +733,7 @@ class Paillier(
         self,
         lower_bound: Plaintext,
         upper_bound: Plaintext,
-        security_level: Optional[int] = None,
+        security_level: int | None = None,
     ) -> FixedPoint:
         r"""
         Returns a random value to mask a plaintext message from a given message space of size $|M|$ with statistical
@@ -818,7 +804,7 @@ class Paillier(
         return (input_x - 1) // n
 
     @classmethod
-    def id_from_arguments(  # type: ignore[override]
+    def id_from_arguments(
         cls,
         public_key: PaillierPublicKey,
         precision: int = 0,
@@ -844,7 +830,7 @@ class Paillier(
     def serialize(
         self,
         *,
-        destination: Optional[Union[HTTPClient, List[HTTPClient]]] = None,
+        destination: HTTPClient | list[HTTPClient] | None = None,
         **_kwargs: Any,
     ) -> Paillier.SerializedPaillier:
         r"""
@@ -912,7 +898,7 @@ class Paillier(
     def deserialize(
         obj: Paillier.SerializedPaillier,
         *,
-        origin: Optional[HTTPClient] = None,
+        origin: HTTPClient | None = None,
         **_kwargs: Any,
     ) -> Paillier:
         r"""
@@ -959,8 +945,6 @@ class Paillier(
                     public_key=pubkey,
                     secret_key=obj["seckey"] if "seckey" in obj else None,
                     precision=precision,
-                    nr_of_threads=0,
-                    start_generation=False,
                 )
                 paillier.save_globally()
         if origin is not None and origin not in paillier.client_history:

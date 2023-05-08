@@ -71,11 +71,8 @@ def fixture_paillier_scheme_with_precision() -> Generator[Paillier, None, None]:
     scheme = Paillier.from_security_parameter(
         key_length=1024,
         precision=10,
-        nr_of_threads=3,
         debug=False,
-        start_generation=False,
     )
-    scheme.boot_generation()
     yield scheme
     scheme.shut_down()
 
@@ -90,10 +87,7 @@ def fixture_paillier_scheme_without_precision() -> Generator[Paillier, None, Non
 
     :return: Initialized Paillier scheme with, or without, precision
     """
-    scheme = Paillier.from_security_parameter(
-        key_length=1024, nr_of_threads=3, debug=False, start_generation=False
-    )
-    scheme.boot_generation()
+    scheme = Paillier.from_security_parameter(key_length=1024, debug=False)
     yield scheme
     scheme.shut_down()
 
@@ -117,6 +111,6 @@ def fixture_paillier_scheme(
     :param paillier_scheme_without_precision: Paillier fixture without precision
     :return: Initialized Paillier scheme with, or without, precision
     """
-    if request.param:  # type: ignore[attr-defined]
+    if request.param:
         return paillier_scheme_with_precision
     return paillier_scheme_without_precision

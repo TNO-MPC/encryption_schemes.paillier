@@ -2,6 +2,7 @@
 This module tests the serialization of Paillier instances.
 """
 import asyncio
+import warnings
 from typing import Any, Generator, Tuple
 
 import pytest
@@ -35,13 +36,9 @@ def paillier_scheme(with_precision: bool) -> Paillier:
         return Paillier.from_security_parameter(
             key_length=1024,
             precision=10,
-            nr_of_threads=3,
             debug=False,
-            start_generation=False,
         )
-    return Paillier.from_security_parameter(
-        key_length=1024, nr_of_threads=3, debug=False, start_generation=False
-    )
+    return Paillier.from_security_parameter(key_length=1024, debug=False)
 
 
 def fibonacci_generator(elements: int) -> Generator[int, None, None]:
@@ -66,7 +63,6 @@ def test_serialization_public_key(with_precision: bool) -> None:
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     public_key = scheme.public_key
     public_key_prime = PaillierPublicKey.deserialize(public_key.serialize())
     scheme.shut_down()
@@ -81,7 +77,6 @@ def test_serialization_secret_key(with_precision: bool) -> None:
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     secret_key = scheme.secret_key
     secret_key_prime = PaillierSecretKey.deserialize(secret_key.serialize())
     scheme.shut_down()
@@ -97,7 +92,6 @@ def test_serialization_paillier_no_share(with_precision: bool) -> None:
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     # by default the secret key is not serialized, but equality should then still hold
     scheme_prime = Paillier.deserialize(scheme.serialize())
     scheme.shut_down()
@@ -107,7 +101,6 @@ def test_serialization_paillier_no_share(with_precision: bool) -> None:
     assert scheme == scheme_prime
 
     # this time empty the list of global instances after serialization
-    scheme.boot_generation()
     scheme_serialized = scheme.serialize()
     Paillier.clear_instances()
     scheme_prime2 = Paillier.deserialize(scheme_serialized)
@@ -126,7 +119,6 @@ def test_serialization_paillier_share(with_precision: bool) -> None:
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     scheme.share_secret_key = True
     # We indicated that the secret key should be serialized, so this should be equal
     scheme_prime = Paillier.deserialize(scheme.serialize())
@@ -150,7 +142,6 @@ def test_serialization_randomization_unfresh(value: int, with_precision: bool) -
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     ciphertext = scheme.unsafe_encrypt(value)
     val_pre_serialize = ciphertext.peek_value()
 
@@ -178,7 +169,6 @@ def test_serialization_randomization_fresh(value: int, with_precision: bool) -> 
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     ciphertext = scheme.encrypt(value)
     val_pre_serialize = ciphertext.peek_value()
 
@@ -208,9 +198,11 @@ def test_serialization_ciphertext(
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     ciphertext = encrypt_with_freshness(value, scheme, fresh)
-    ciphertext_prime = PaillierCiphertext.deserialize(ciphertext.serialize())
+    with warnings.catch_warnings():
+        # The unfresh serialization warning is not in scope of this test.
+        warnings.filterwarnings("ignore", WARN_UNFRESH_SERIALIZATION, UserWarning)
+        ciphertext_prime = PaillierCiphertext.deserialize(ciphertext.serialize())
     scheme.shut_down()
     assert ciphertext == ciphertext_prime
     assert ciphertext.fresh is False
@@ -226,7 +218,6 @@ def test_unrelated_instances(with_precision: bool) -> None:
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     public_key = scheme.public_key
     secret_key = scheme.secret_key
 
@@ -273,7 +264,6 @@ def test_related_serialization(with_precision: bool) -> None:
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     ciphertext_1 = scheme.encrypt(1)
     ciphertext_2 = scheme.encrypt(2)
     ser_1 = ciphertext_1.serialize()
@@ -302,7 +292,6 @@ def test_instances_from_security_param(with_precision: bool) -> None:
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme.boot_generation()
     new_paillier_1 = Paillier.from_security_parameter(256)
     new_paillier_1.save_globally()
     new_paillier_2: Paillier = Paillier.from_id(new_paillier_1.identifier)
