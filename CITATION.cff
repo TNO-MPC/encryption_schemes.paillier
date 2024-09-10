@@ -2,22 +2,21 @@ cff-version: 1.2.0
 license: Apache-2.0
 message: If you use this software, please cite it using these metadata.
 authors:
-      - name: TNO MPC Lab
-        city: The Hague
-        country: NL
-        email: mpclab@tno.nl
-        website: https://mpc.tno.nl
+  - name: TNO PET Lab
+    city: The Hague
+    country: NL
+    email: petlab@tno.nl
+    website: https://pet.tno.nl
 type: software
-url: https://mpc.tno.nl
+url: https://pet.tno.nl
 contact:
-      - name: TNO MPC Lab
-        city: The Hague
-        country: NL
-        email: mpclab@tno.nl
-        website: https://mpc.tno.nl
+  - name: TNO PET Lab
+    city: The Hague
+    country: NL
+    email: petlab@tno.nl
+    website: https://pet.tno.nl
 repository-code: https://github.com/TNO-MPC/encryption_schemes.paillier
 repository-artifact: https://pypi.org/project/tno.mpc.encryption_schemes.paillier
-title: TNO MPC Lab - Encryption Schemes - Paillier
-version: v3.0.1
-date-released: 2023-06-05
-
+title: TNO PET Lab - secure Multi-Party Computation (MPC) - Encryption Schemes - Paillier
+version: 3.1.2
+date-released: 2024-11-29

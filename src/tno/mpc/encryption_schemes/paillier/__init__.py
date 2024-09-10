@@ -1,5 +1,5 @@
 """
-Implementation of the Paillier cryptosystem.
+Root imports for the tno.mpc.encryption_schemes.paillier package.
 """
 
 # Explicit re-export of all functionalities, such that they can be imported properly. Following
@@ -20,4 +20,4 @@ from tno.mpc.encryption_schemes.paillier.paillier import (
     PaillierSecretKey as PaillierSecretKey,
 )
 
-__version__ = "3.0.1"
+__version__ = "3.1.2"

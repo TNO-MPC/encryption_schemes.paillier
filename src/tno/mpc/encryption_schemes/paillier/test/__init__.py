@@ -1,12 +1,11 @@
 """
-Testing module of the tno.mpc.encryption_schemes.paillier library
+Testing module of the tno.mpc.encryption_schemes.paillier package.
 """
 
 from contextlib import contextmanager
 from typing import Generator, Iterator
 
 import pytest
-from _pytest.fixtures import FixtureRequest
 
 from tno.mpc.encryption_schemes.paillier import (
     EncryptionSchemeWarning,
@@ -37,12 +36,12 @@ def encrypt_with_freshness(
 @contextmanager
 def conditional_pywarn(truthy: bool, match: str) -> Iterator[None]:
     """
-    Conditionally wraps statement in pytest.warns context manager.
+    Conditionally wraps statement in pytest.warns(EncryptionSchemeWarning) contextmanager.
 
-    :param truthy: Flags whether statement should be ran in pytest.warns
-    :param match: Match parameter for pytest.warns
-    :return: _description_
-    :yield: _description_
+    :param truthy: If True, activate pytest.warns contextmanager. Otherwise, do not activate a
+        contextmanager.
+    :param match: Match parameter for pytest.warns.
+    :return: Context where EncyrptionSchemeWarning is expected if truthy holds.
     """
     if truthy:
         with pytest.warns(EncryptionSchemeWarning) as record:
@@ -50,67 +49,12 @@ def conditional_pywarn(truthy: bool, match: str) -> Iterator[None]:
             assert (
                 len(record) >= 1  # Duplicate warnings possible
             ), f"Expected to catch one EncryptionSchemeWarning, caught {len(record)}."
-            for rec_msg in (str(rec.message) for rec in record):
-                assert (
-                    rec_msg == match
-                ), f'Expected message "{match}", received message "{rec_msg}".'
+            warn_messages = [str(rec.message) for rec in record]
+            joined_messages = "\n".join(
+                '"' + message + '"' for message in warn_messages
+            )
+            assert any(
+                match == message for message in warn_messages
+            ), f'Expected message "{match}", received messages:\n{joined_messages}.'
     else:
         yield
-
-
-@pytest.fixture(
-    name="paillier_scheme_with_precision",
-    scope="module",
-)
-def fixture_paillier_scheme_with_precision() -> Generator[Paillier, None, None]:
-    """
-    Constructs a Paillier scheme
-
-    :return: Initialized Paillier scheme with, or without, precision
-    """
-    scheme = Paillier.from_security_parameter(
-        key_length=1024,
-        precision=10,
-        debug=False,
-    )
-    yield scheme
-    scheme.shut_down()
-
-
-@pytest.fixture(
-    name="paillier_scheme_without_precision",
-    scope="module",
-)
-def fixture_paillier_scheme_without_precision() -> Generator[Paillier, None, None]:
-    """
-    Constructs a Paillier scheme
-
-    :return: Initialized Paillier scheme with, or without, precision
-    """
-    scheme = Paillier.from_security_parameter(key_length=1024, debug=False)
-    yield scheme
-    scheme.shut_down()
-
-
-@pytest.fixture(
-    name="paillier_scheme",
-    params=[True, False],
-    ids=["with_precision", "without_precision"],
-    scope="module",
-)
-def fixture_paillier_scheme(
-    request: FixtureRequest,
-    paillier_scheme_with_precision: Paillier,
-    paillier_scheme_without_precision: Paillier,
-) -> Paillier:
-    """
-    Constructs a Paillier scheme
-
-    :param request: pytest parameter specifying whether to use precision in scheme
-    :param paillier_scheme_with_precision: Paillier fixture with precision
-    :param paillier_scheme_without_precision: Paillier fixture without precision
-    :return: Initialized Paillier scheme with, or without, precision
-    """
-    if request.param:
-        return paillier_scheme_with_precision
-    return paillier_scheme_without_precision

@@ -1,6 +1,7 @@
 """
 This module tests the construction and use of Paillier instances.
 """
+
 import itertools
 from typing import Optional, Union
 
@@ -16,12 +17,9 @@ from tno.mpc.encryption_schemes.paillier.paillier import (
     Plaintext,
     fxp,
 )
-from tno.mpc.encryption_schemes.paillier.test import (  # pylint: disable=unused-import
+from tno.mpc.encryption_schemes.paillier.test import (
     conditional_pywarn,
     encrypt_with_freshness,
-    fixture_paillier_scheme,
-    fixture_paillier_scheme_with_precision,
-    fixture_paillier_scheme_without_precision,
 )
 
 if USE_GMPY2:

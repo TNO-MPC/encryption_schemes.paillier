@@ -1,6 +1,7 @@
 """
 This module tests the serialization of Paillier instances.
 """
+
 import asyncio
 import warnings
 from typing import Any, Generator, Tuple
@@ -8,11 +9,6 @@ from typing import Any, Generator, Tuple
 import pytest
 
 from tno.mpc.communication import Pool
-from tno.mpc.communication.test.pool_fixtures_http import (  # pylint: disable=unused-import
-    event_loop,
-    fixture_pool_http_2p,
-    fixture_pool_http_3p,
-)
 
 from tno.mpc.encryption_schemes.paillier import (
     EncryptionSchemeWarning,
@@ -97,7 +93,7 @@ def test_serialization_paillier_no_share(with_precision: bool) -> None:
     scheme.shut_down()
     scheme_prime.shut_down()
     # secret key is still shared due to local instance sharing
-    assert scheme_prime.secret_key is scheme_prime.secret_key
+    assert scheme.secret_key is scheme_prime.secret_key
     assert scheme == scheme_prime
 
     # this time empty the list of global instances after serialization
@@ -326,56 +322,56 @@ async def send_and_receive(pools: Tuple[Pool, Pool], obj: Any) -> Any:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_precision", (True, False))
 async def test_sending_and_receiving(
-    pool_http_2p: Tuple[Pool, Pool], with_precision: bool
+    http_pool_duo: Tuple[Pool, Pool], with_precision: bool
 ) -> None:
     """
     This test ensures that serialisation logic is correctly loading into the communication module.
 
-    :param pool_http_2p: collection of communication pools
+    :param http_pool_duo: collection of communication pools
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
-    scheme_prime = await send_and_receive(pool_http_2p, scheme)
+    scheme_prime = await send_and_receive(http_pool_duo, scheme)
     assert Paillier.from_id(scheme.identifier) is scheme
     assert scheme_prime is scheme
     # the scheme has been sent once, so the httpclients should be in the scheme's client
     # history.
     assert len(scheme.client_history) == 2
-    assert scheme.client_history[0] == pool_http_2p[0].pool_handlers["local1"]
-    assert scheme.client_history[1] == pool_http_2p[1].pool_handlers["local0"]
+    assert scheme.client_history[0] == http_pool_duo[0].pool_handlers["local1"]
+    assert scheme.client_history[1] == http_pool_duo[1].pool_handlers["local0"]
 
     encryption = scheme.encrypt(plaintext=42)
-    encryption_prime = await send_and_receive(pool_http_2p, encryption)
+    encryption_prime = await send_and_receive(http_pool_duo, encryption)
     encryption_prime.scheme.shut_down()
     assert encryption == encryption_prime
 
-    public_key_prime = await send_and_receive(pool_http_2p, scheme.public_key)
+    public_key_prime = await send_and_receive(http_pool_duo, scheme.public_key)
     assert scheme.public_key == public_key_prime
 
-    secret_key_prime = await send_and_receive(pool_http_2p, scheme.secret_key)
+    secret_key_prime = await send_and_receive(http_pool_duo, scheme.secret_key)
     assert scheme.secret_key == secret_key_prime
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_precision", (True, False))
 async def test_broadcasting(
-    pool_http_3p: Tuple[Pool, Pool, Pool], with_precision: bool
+    http_pool_trio: Tuple[Pool, Pool, Pool], with_precision: bool
 ) -> None:
     """
     This test ensures that broadcasting ciphertexts works as expected.
 
-    :param pool_http_3p: collection of communication pools
+    :param http_pool_trio: collection of communication pools
     :param with_precision: boolean specifying whether to use precision in scheme
     """
     scheme = paillier_scheme(with_precision)
     await asyncio.gather(
         *(
-            pool_http_3p[0].send("local1", scheme),
-            pool_http_3p[0].send("local2", scheme),
+            http_pool_trio[0].send("local1", scheme),
+            http_pool_trio[0].send("local2", scheme),
         )
     )
     scheme_prime_1, scheme_prime_2 = await asyncio.gather(
-        *(pool_http_3p[1].recv("local0"), pool_http_3p[2].recv("local0"))
+        *(http_pool_trio[1].recv("local0"), http_pool_trio[2].recv("local0"))
     )
     assert Paillier.from_id(scheme.identifier) is scheme
     assert scheme_prime_1 is scheme
@@ -383,17 +379,17 @@ async def test_broadcasting(
     # the scheme has been sent once to each party, so the httpclients should be in the scheme's client
     # history.
     assert len(scheme.client_history) == 3
-    assert pool_http_3p[0].pool_handlers["local1"] in scheme.client_history
-    assert pool_http_3p[0].pool_handlers["local2"] in scheme.client_history
-    assert pool_http_3p[1].pool_handlers["local0"] in scheme.client_history
-    assert pool_http_3p[2].pool_handlers["local0"] in scheme.client_history
+    assert http_pool_trio[0].pool_handlers["local1"] in scheme.client_history
+    assert http_pool_trio[0].pool_handlers["local2"] in scheme.client_history
+    assert http_pool_trio[1].pool_handlers["local0"] in scheme.client_history
+    assert http_pool_trio[2].pool_handlers["local0"] in scheme.client_history
 
     encryption = scheme.encrypt(plaintext=42)
-    await pool_http_3p[0].broadcast(encryption, "msg_id")
+    await http_pool_trio[0].broadcast(encryption, "msg_id")
     encryption_prime_1, encryption_prime_2 = await asyncio.gather(
         *(
-            pool_http_3p[1].recv("local0", "msg_id"),
-            pool_http_3p[2].recv("local0", "msg_id"),
+            http_pool_trio[1].recv("local0", "msg_id"),
+            http_pool_trio[2].recv("local0", "msg_id"),
         )
     )
 

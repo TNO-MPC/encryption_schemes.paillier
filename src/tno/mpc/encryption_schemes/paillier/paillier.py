@@ -5,11 +5,11 @@ Implementation of the Asymmetric Encryption Scheme known as Paillier.
 from __future__ import annotations
 
 import numbers
-import sys
 import warnings
-from functools import partial
+from dataclasses import asdict, dataclass
+from functools import cached_property, partial
 from secrets import randbelow
-from typing import Any, Tuple, Union, cast
+from typing import Any, Tuple, TypedDict, Union, cast, get_args
 
 from tno.mpc.encryption_schemes.templates import (
     AsymmetricEncryptionScheme,
@@ -32,10 +32,6 @@ try:
 except ModuleNotFoundError:
     COMMUNICATION_INSTALLED = False
 
-if sys.version_info < (3, 8):
-    from typing_extensions import TypedDict, get_args
-else:
-    from typing import TypedDict, get_args
 
 fxp = FixedPoint.fxp
 
@@ -51,64 +47,31 @@ WARN_UNFRESH_SERIALIZATION = (
 )
 
 
+@dataclass(frozen=True, eq=True)
 class PaillierPublicKey(PublicKey):
-    """
+    r"""
     PublicKey for the Paillier encryption scheme.
+
+    Constructs a new Paillier public key $(n, g)$, should have $n=pq$, with $p, q$ prime, and
+    $g \in \mathbb{Z}^*_{n^2}$.
+
+    :param n: Modulus $n$ of the plaintext space.
+    :param g: Plaintext base $g$ for encryption.
     """
 
-    def __init__(self, n: int, g: int):
-        r"""
-        Constructs a new Paillier public key $(n, g)$, should have $n=pq$, with $p, q$ prime, and
-        $g \in \mathbb{Z}^*_{n^2}$.
+    n: int
+    g: int
 
-        :param n: Modulus $n$ of the plaintext space.
-        :param g: Plaintext base $g$ for encryption.
-
-        Also contains:
-        n_squared: Modulus of the ciphertext space $n^2$.
+    @cached_property
+    def n_squared(self) -> int:
         """
-        super().__init__()
-        self.n = n
-        self.n_squared = n**2
-        self.g = g
-
-    def __hash__(self) -> int:
+        Modulus of the ciphertext space.
         """
-        Compute a hash from this PaillierPublicKey instance.
-
-        :return: Hash value.
-        """
-        return hash((self.n, self.g))
-
-    def __eq__(self, other: object) -> bool:
-        """
-        Compare this PaillierPublicKey with another to determine (in)equality.
-
-        :param other: Object to compare this PaillierPublicKey with.
-        :raise TypeError: When other object is not a PaillierPublicKey.
-        :return: Boolean value representing (in)equality of both objects.
-        """
-        if not isinstance(other, PaillierPublicKey):
-            raise TypeError(
-                f"Expected comparison with another PaillierPublicKey, not {type(other)}"
-            )
-        return self.n == other.n and self.g == other.g
-
-    def __str__(self) -> str:
-        """
-        :return: Reprentation of public key prepended by (n, g)=
-        """
-        return f"(n, g)=({self.n}, {self.g})"
+        return self.n**2
 
     # region Serialization logic
 
-    class SerializedPaillierPublicKey(TypedDict):
-        n: int
-        g: int
-
-    def serialize(
-        self, **_kwargs: Any
-    ) -> PaillierPublicKey.SerializedPaillierPublicKey:
+    def serialize(self, **_kwargs: Any) -> dict[str, Any]:
         r"""
         Serialization function for public keys, which will be passed to the communication module.
 
@@ -118,15 +81,10 @@ class PaillierPublicKey(PublicKey):
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
-        return {
-            "n": self.n,
-            "g": self.g,
-        }
+        return asdict(self)
 
     @staticmethod
-    def deserialize(
-        obj: PaillierPublicKey.SerializedPaillierPublicKey, **_kwargs: Any
-    ) -> PaillierPublicKey:
+    def deserialize(obj: dict[str, Any], **_kwargs: Any) -> PaillierPublicKey:
         r"""
         Deserialization function for public keys, which will be passed to the communication module.
 
@@ -137,75 +95,32 @@ class PaillierPublicKey(PublicKey):
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
-        return PaillierPublicKey(
-            n=obj["n"],
-            g=obj["g"],
-        )
+        return PaillierPublicKey(**obj)
 
     # endregion
 
 
+@dataclass(frozen=True, eq=True)
 class PaillierSecretKey(SecretKey):
-    """
+    r"""
     SecretKey for the Paillier encryption scheme.
+
+    Constructs a new Paillier secret key $(\lambda, \mu)$, also contains $n$. Should have $n=pq$,
+    with $p, q$ prime, $\lambda = \text{lcm}(p-1, q-1)$, and
+    $\mu = (L(g^\lambda \mod n^2))^{-1} \mod n$, where $L(\cdot)$ is defined as $L(x) = (x-1)/n$.
+
+    :param lambda_: Decryption exponent $\lambda$ of the ciphertext.
+    :param mu: Decryption divisor $\mu$ for the ciphertext.
+    :param n: Modulus $n$ of the plaintext space.
     """
 
-    def __init__(self, lambda_value: int, mu: int, n: int):
-        r"""
-        Constructs a new Paillier secret key $(\lambda, \mu)$, also contains $n$.
-        Should have $n=pq$, with $p, q$ prime, $\lambda = \text{lcm}(p-1, q-1)$, and
-        $\mu = (L(g^\lambda \mod n^2))^{-1} \mod n$, where $L(\cdot)$ is defined as
-        $L(x) = (x-1)/n$.
-
-        :param lambda_value: Decryption exponent $\lambda$ of the ciphertext.
-        :param mu: Decryption divisor $\mu$ for the ciphertext.
-        :param n: Modulus $n$ of the plaintext space.
-        """
-        super().__init__()
-        self.lambda_ = lambda_value
-        self.mu = mu
-        self.n = n
-
-    def __hash__(self) -> int:
-        """
-        Compute a hash from this PaillierSecretKey instance.
-
-        :return: Hash value.
-        """
-        return hash((self.lambda_, self.mu, self.n))
-
-    def __eq__(self, other: object) -> bool:
-        """
-        Compare this PaillierSecretKey with another to determine (in)equality.
-
-        :param other: Object to compare this PaillierSecretKey with.
-        :raise TypeError: When other object is not a PaillierSecretKey.
-        :return: Boolean value representing (in)equality of both objects.
-        """
-        if not isinstance(other, PaillierSecretKey):
-            raise TypeError(
-                f"Expected comparison with another PaillierSecretKey, not {type(other)}"
-            )
-        return (
-            self.lambda_ == other.lambda_ and self.mu == other.mu and self.n == other.n
-        )
-
-    def __str__(self) -> str:
-        """
-        :return: Reprentation of secret key prepended by (lambda, mu)=
-        """
-        return f"(lambda, mu)=({self.lambda_}, {self.mu})"
+    lambda_: int
+    mu: int
+    n: int
 
     # region Serialization logic
 
-    class SerializedPaillierSecretKey(TypedDict):
-        lambda_: int
-        mu: int
-        n: int
-
-    def serialize(
-        self, **_kwargs: Any
-    ) -> PaillierSecretKey.SerializedPaillierSecretKey:
+    def serialize(self, **_kwargs: Any) -> dict[str, Any]:
         r"""
         Serialization function for secret keys, which will be passed to the communication module.
 
@@ -215,31 +130,21 @@ class PaillierSecretKey(SecretKey):
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
-        return {
-            "lambda_": self.lambda_,
-            "mu": self.mu,
-            "n": self.n,
-        }
+        return asdict(self)
 
     @staticmethod
-    def deserialize(
-        obj: PaillierSecretKey.SerializedPaillierSecretKey, **_kwargs: Any
-    ) -> PaillierSecretKey:
+    def deserialize(obj: dict[str, Any], **_kwargs: Any) -> PaillierSecretKey:
         r"""
         Deserialization function for public keys, which will be passed to the communication module
 
-        :param obj:  serialized version of a PaillierSecretKey.
+        :param obj: serialized version of a PaillierSecretKey.
         :param \**_kwargs: optional extra keyword arguments
         :raise SerializationError: When communication library is not installed.
         :return: Deserialized PaillierSecretKey from the given dict.
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
-        return PaillierSecretKey(
-            lambda_value=obj["lambda_"],
-            mu=obj["mu"],
-            n=obj["n"],
-        )
+        return PaillierSecretKey(**obj)
 
     # endregion
 
@@ -299,6 +204,14 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
                 f"Expected comparison with another PaillierCiphertext, not {type(other)}"
             )
         return self._raw_value == other._raw_value and self.scheme == other.scheme
+
+    def __hash__(self) -> int:
+        """
+        Hash this PaillierCiphertext.
+
+        :return: Hash of this PaillierCiphertext.
+        """
+        return hash((self._raw_value, self.scheme))
 
     def copy(self: PaillierCiphertext) -> PaillierCiphertext:
         """
@@ -654,6 +567,14 @@ class Paillier(
             and self.precision == other.precision
             and self.public_key == other.public_key
         )
+
+    def __hash__(self) -> int:
+        """
+        Hash this Paillier scheme.
+
+        :return: Hash of this Paillier scheme.
+        """
+        return hash((self.public_key, self.precision))
 
     @staticmethod
     def _generate_randomness_from_args(
