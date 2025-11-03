@@ -21,7 +21,7 @@ _This implementation of cryptographic software has not been audited. Use at your
 ## Documentation
 
 Documentation of the `tno.mpc.encryption_schemes.paillier` package can be found
-[here](https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/4.0.0).
+[here](https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/4.1.0).
 
 ## Install
 

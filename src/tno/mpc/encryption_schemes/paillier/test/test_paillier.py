@@ -142,6 +142,25 @@ class TestPaillierCiphertext(
         with pytest.raises(TypeError):
             _ = 0.5 * ciphertext
 
+    @pytest.mark.parametrize("scalar", [fxp(0), fxp(123), fxp(-1.23), fxp(0.123)])
+    def test_multiplication_with_fixedpoint(
+        self,
+        ciphertext: PaillierCiphertext,
+        scalar: FixedPoint,
+    ) -> None:
+        """
+        Test that multiplication of a ciphertext with a FixedPoint has expected precision and value.
+
+        :param ciphertext: Ciphertext under test.
+        :param scalar: FixedPoint scalar to multiply ciphertext with.
+        """
+        result = ciphertext * scalar
+        assert result.scheme.precision == ciphertext.scheme.precision + scalar.precision
+
+        expected_value = scalar * ciphertext.scheme.decrypt(ciphertext)
+        result_value = result.scheme.decrypt(result)
+        assert expected_value == result_value
+
 
 class TestPaillierScheme(
     BaseTestRandomizedHomomorphicEncryptionScheme,

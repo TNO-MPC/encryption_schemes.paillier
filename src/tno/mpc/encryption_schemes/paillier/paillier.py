@@ -541,24 +541,35 @@ class Paillier(
         The resulting ciphertext is fresh only if the input was fresh. The input is marked as
         non-fresh after the operation.
 
+        When other is a FixedPoint, the scheme of the resulting ciphertext may be a new
+        Paillier scheme that has the same keys, but that has higher precision.
+
         :param ciphertext: PaillierCiphertext $c$ of which the underlying plaintext is multiplied.
         :param other: A scalar $s$ with which the plaintext underlying ciph should be
             multiplied.
         :raise NotImplementedError: When other is not an integer.
         :return: PaillierCiphertext $c'$ containing the encryption of the product of both values.
         """
-        # This check is necessary to support both built-in integers and gmpy2 integers
-        # - The mpz class from gmpy2 is registered as a virtual subclass of numbers.Integral. Static type checkers
-        #   do not understand such dynamic typing constructions, so the stubs define mpz as a subclass of int, but
-        #   the runtime check is done on `numbers.Integral`.
-        if not isinstance(other, numbers.Integral):
+        # This check supports both built-in integers and gmpy2 integers.
+        # The mpz class from gmpy2 is registered as a virtual subclass of `numbers.Integral`.
+        # Static type checkers do not understand such dynamic typing constructions, so the stubs
+        # define mpz as a subclass of int, but the runtime check is done on `numbers.Integral`.
+        if isinstance(other, numbers.Integral):
+            scalar = cast(int, other)
+            extra_precision = 0
+        elif isinstance(other, FixedPoint):
+            scalar = other.value
+            extra_precision = other.precision
+        else:
             raise NotImplementedError(
-                f"Type of scalar (second multiplicand) should be an integer and not"
+                f"Type of scalar (second multiplicand) should be an integer or FixedPoint and not"
                 f" {type(other)}."
             )
-        if (other := cast(int, other)) < 0:
+
+        # Ensure scalar is a non-negative integer
+        if scalar < 0:
             ciphertext = self.neg(ciphertext)
-            other = -other
+            scalar = -scalar
 
         if new_ciphertext_fresh := ciphertext.fresh:
             warnings.warn(
@@ -567,10 +578,23 @@ class Paillier(
                 stacklevel=2,
             )
 
+        # If necessary, create a new scheme with more precision
+        scheme = (
+            Paillier(
+                self.public_key,
+                self.secret_key,
+                precision=self.precision + extra_precision,
+                share_secret_key=self.share_secret_key,
+                debug=self._debug,
+            )
+            if extra_precision > 0
+            else self
+        )
+
         # ciphertext.get_value() automatically marks ciphertext as not fresh
         return PaillierCiphertext(
-            pow_mod(ciphertext.get_value(), other, self.public_key.n_squared),
-            self,
+            pow_mod(ciphertext.get_value(), scalar, self.public_key.n_squared),
+            scheme=scheme,
             fresh=new_ciphertext_fresh,
         )
 
