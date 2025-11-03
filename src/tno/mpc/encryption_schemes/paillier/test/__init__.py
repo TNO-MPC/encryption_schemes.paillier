@@ -2,8 +2,8 @@
 Testing module of the tno.mpc.encryption_schemes.paillier package.
 """
 
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
-from typing import Generator, Iterator
 
 import pytest
 

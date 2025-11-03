@@ -9,7 +9,7 @@ import warnings
 from dataclasses import asdict, dataclass
 from functools import cached_property, partial
 from secrets import randbelow
-from typing import Any, Tuple, TypedDict, Union, cast, get_args
+from typing import Any, TypedDict, Union, cast, get_args
 
 from tno.mpc.encryption_schemes.templates import (
     AsymmetricEncryptionScheme,
@@ -149,7 +149,7 @@ class PaillierSecretKey(SecretKey):
     # endregion
 
 
-KeyMaterial = Tuple[PaillierPublicKey, PaillierSecretKey]
+KeyMaterial = tuple[PaillierPublicKey, PaillierSecretKey]
 Plaintext = Union[numbers.Integral, float, FixedPoint]
 
 

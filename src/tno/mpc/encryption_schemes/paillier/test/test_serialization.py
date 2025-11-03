@@ -4,7 +4,8 @@ This module tests the serialization of Paillier instances.
 
 import asyncio
 import warnings
-from typing import Any, Generator, Tuple
+from collections.abc import Generator
+from typing import Any
 
 import pytest
 
@@ -305,7 +306,7 @@ def test_instances_from_security_param(with_precision: bool) -> None:
     assert new_paillier_2 != new_paillier_3
 
 
-async def send_and_receive(pools: Tuple[Pool, Pool], obj: Any) -> Any:
+async def send_and_receive(pools: tuple[Pool, Pool], obj: Any) -> Any:
     """
     Method that sends objects from one party to another.
 
@@ -322,7 +323,7 @@ async def send_and_receive(pools: Tuple[Pool, Pool], obj: Any) -> Any:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_precision", (True, False))
 async def test_sending_and_receiving(
-    http_pool_duo: Tuple[Pool, Pool], with_precision: bool
+    http_pool_duo: tuple[Pool, Pool], with_precision: bool
 ) -> None:
     """
     This test ensures that serialisation logic is correctly loading into the communication module.
@@ -355,7 +356,7 @@ async def test_sending_and_receiving(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("with_precision", (True, False))
 async def test_broadcasting(
-    http_pool_trio: Tuple[Pool, Pool, Pool], with_precision: bool
+    http_pool_trio: tuple[Pool, Pool, Pool], with_precision: bool
 ) -> None:
     """
     This test ensures that broadcasting ciphertexts works as expected.

@@ -2,7 +2,7 @@
 Fixtures for Paillier tests
 """
 
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 

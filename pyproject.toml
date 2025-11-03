@@ -27,9 +27,9 @@ classifiers = [
     "Typing :: Typed",
     "Topic :: Security :: Cryptography",
 ]
-urls = { Homepage = "https://pet.tno.nl/", Documentation = "https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/3.1.2", Source = "https://github.com/TNO-MPC/encryption_schemes.paillier" }
+urls = { Homepage = "https://pet.tno.nl/", Documentation = "https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/3.2.0", Source = "https://github.com/TNO-MPC/encryption_schemes.paillier" }
 dynamic = ["version"]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "tno.mpc.encryption_schemes.templates~=4.1",
     "tno.mpc.encryption_schemes.utils~=0.9",
@@ -80,7 +80,7 @@ namespace_packages = true
 explicit_package_bases = true
 
 [tool.tbump.version]
-current = "3.1.2"
+current = "3.2.0"
 regex = '''
 \d+\.\d+\.\d+(-(.*))?
 '''

@@ -21,7 +21,7 @@ _This implementation of cryptographic software has not been audited. Use at your
 ## Documentation
 
 Documentation of the `tno.mpc.encryption_schemes.paillier` package can be found
-[here](https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/3.1.2).
+[here](https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/3.2.0).
 
 ## Install
 
@@ -43,6 +43,7 @@ If you wish to run the tests you can use:
 ```console
 $ python -m pip install 'tno.mpc.encryption_schemes.paillier[tests]'
 ```
+
 _Note:_ A significant performance improvement can be achieved by installing the GMPY2 library.
 
 ```console
@@ -89,7 +90,7 @@ The package integrates naturally with `tno.mpc.communication` and if that is use
 
 ## Tailor behavior to your needs
 
-The crypto-neutral developer is facilitated by the package as follows: the package takes care of all bookkeeping, and the serialization used by `tno.mpc.communication` takes care of all randomization. The warnings can be [disabled](#warnings) for a smoother experience.
+The crypto-neutral developer is facilitated by the package as follows: the package takes care of all bookkeeping, and the serialization used by `tno.mpc.communication` takes care of all randomization. The warnings can be [disabled](https://raw.githubusercontent.com/TNO-MPC/encryption_schemes.paillier/main/#warnings) for a smoother experience.
 
 The eager crypto-youngster can improve their understanding and hone their skills by learning from the warnings that the package provides in a safe environment. The package is safe to use when combined with `tno.mpc.communication`. It remains to be safe while you transform your code from 'randomize-early' (fresh encryptions) to 'randomize-late' (unfresh encryptions, randomize before exposure). At that point you have optimized the efficiency of the library while ensuring that all exposed ciphertexts are fresh before they are serialized. In particular, you no longer rely on our serialization for (re)randomizing your ciphertexts.
 
@@ -111,7 +112,7 @@ Finally, note that some operations issue two warnings, e.g. `c1-c2` issues a war
 
 ## Advanced usage
 
-The [basic usage](#basic-usage) can be improved upon by explicitly randomizing at late as possible.
+The [basic usage](https://raw.githubusercontent.com/TNO-MPC/encryption_schemes.paillier/main/#basic-usage) can be improved upon by explicitly randomizing at late as possible.
 
 ```python
 from tno.mpc.encryption_schemes.paillier import Paillier
@@ -132,7 +133,7 @@ if __name__ == "__main__":
     assert decrypted_sum == 100
 ```
 
-As explained [above](#fresh-and-unfresh-ciphertexts), this implementation avoids wasted randomization for `encrypted_sum` and therefore is more efficient.
+As explained [above](https://raw.githubusercontent.com/TNO-MPC/encryption_schemes.paillier/main/#fresh-and-unfresh-ciphertexts), this implementation avoids wasted randomization for `encrypted_sum` and therefore is more efficient.
 
 ## Speed-up encrypting and randomizing
 
