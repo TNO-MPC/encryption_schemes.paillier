@@ -4,44 +4,54 @@ Implementation of the Asymmetric Encryption Scheme known as Paillier.
 
 from __future__ import annotations
 
+import hashlib
 import numbers
+import sys
+import typing
 import warnings
 from dataclasses import asdict, dataclass
-from functools import cached_property, partial
+from functools import cached_property, lru_cache, partial
 from secrets import randbelow
 from typing import Any, TypedDict, Union, cast, get_args
 
 from tno.mpc.encryption_schemes.templates import (
+    AdditiveHomomorphicCiphertext,
+    AdditiveHomomorphicEncryptionScheme,
     AsymmetricEncryptionScheme,
     EncodedPlaintext,
     EncryptionSchemeWarning,
     PublicKey,
-    RandomizableCiphertext,
-    RandomizedEncryptionScheme,
+    RandomizedEncryptionSchemeWarning,
     SecretKey,
     SerializationError,
 )
+from tno.mpc.encryption_schemes.templates.exceptions import (
+    WARN_INEFFICIENT_HOM_OPERATION,
+)
 from tno.mpc.encryption_schemes.utils import FixedPoint, mod_inv, pow_mod, randprime
+
+if sys.version_info < (3, 11):
+    from typing_extensions import NotRequired
+else:
+    from typing import NotRequired
 
 # Check to see if the communication module is available
 try:
-    from tno.mpc.communication import RepetitionError, Serialization
-    from tno.mpc.communication.httphandlers import HTTPClient
+    from tno.mpc.communication import RepetitionError, Serializer
+    from tno.mpc.communication.packers import DeserializerOpts, SerializerOpts
 
     COMMUNICATION_INSTALLED = True
 except ModuleNotFoundError:
     COMMUNICATION_INSTALLED = False
+except ImportError as exc:
+    raise ImportError(
+        "Detected an incompatible version of 'tno.mpc.communication'. Please install this package with the extra 'communication', e.g. 'tno.mpc.encryption_schemes.paillier[communication]'."
+    )
 
 
 fxp = FixedPoint.fxp
 
-WARN_INEFFICIENT_HOM_OPERATION = (
-    "Identified a fresh ciphertext as input to a homomorphic operation, which is no longer fresh "
-    "after the operation. This indicates a potential inefficiency if the non-fresh input may also "
-    "be used in other operations (unused randomness). Solution: randomize ciphertexts as late as "
-    "possible, e.g. by encrypting them with scheme.unsafe_encrypt and randomizing them just "
-    "before sending. Note that the serializer randomizes non-fresh ciphertexts by default."
-)
+
 WARN_UNFRESH_SERIALIZATION = (
     "Serializer identified and rerandomized a non-fresh ciphertext."
 )
@@ -69,27 +79,38 @@ class PaillierPublicKey(PublicKey):
         """
         return self.n**2
 
+    @lru_cache
+    def id(self) -> int:
+        """
+        Identifier of this specific key that is consistent over system architectures.
+
+        :return: Representation of SHA-256 hash of object-defining attribute values.
+        """
+        # We use hashlib to ensure consistent hashes over different system architectures.
+        h = hashlib.sha256()
+        h.update(_to_bytes(self.n))
+        h.update(_to_bytes(self.g))
+        return int.from_bytes(h.digest(), "big")
+
     # region Serialization logic
 
-    def serialize(self, **_kwargs: Any) -> dict[str, Any]:
+    def serialize(self, _opts: SerializerOpts) -> dict[str, Any]:
         r"""
         Serialization function for public keys, which will be passed to the communication module.
 
-        :param \**_kwargs: optional extra keyword arguments
         :raise SerializationError: When communication library is not installed.
-        :return: serialized version of this PaillierPublicKey.
+        :return: Serialized version of this PaillierPublicKey.
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
         return asdict(self)
 
     @staticmethod
-    def deserialize(obj: dict[str, Any], **_kwargs: Any) -> PaillierPublicKey:
+    def deserialize(obj: dict[str, Any], _opts: DeserializerOpts) -> PaillierPublicKey:
         r"""
         Deserialization function for public keys, which will be passed to the communication module.
 
-        :param obj: serialized version of a PaillierPublicKey.
-        :param \**_kwargs: optional extra keyword arguments
+        :param obj: Serialized version of a PaillierPublicKey.
         :raise SerializationError: When communication library is not installed.
         :return: Deserialized PaillierPublicKey from the given dict.
         """
@@ -120,25 +141,23 @@ class PaillierSecretKey(SecretKey):
 
     # region Serialization logic
 
-    def serialize(self, **_kwargs: Any) -> dict[str, Any]:
+    def serialize(self, _opts: SerializerOpts) -> dict[str, Any]:
         r"""
         Serialization function for secret keys, which will be passed to the communication module.
 
-        :param \**_kwargs: optional extra keyword arguments
         :raise SerializationError: When communication library is not installed.
-        :return: serialized version of this PaillierSecretKey.
+        :return: Serialized version of this PaillierSecretKey.
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
         return asdict(self)
 
     @staticmethod
-    def deserialize(obj: dict[str, Any], **_kwargs: Any) -> PaillierSecretKey:
+    def deserialize(obj: dict[str, Any], _opts: DeserializerOpts) -> PaillierSecretKey:
         r"""
         Deserialization function for public keys, which will be passed to the communication module
 
-        :param obj: serialized version of a PaillierSecretKey.
-        :param \**_kwargs: optional extra keyword arguments
+        :param obj: Serialized version of a PaillierSecretKey.
         :raise SerializationError: When communication library is not installed.
         :return: Deserialized PaillierSecretKey from the given dict.
         """
@@ -149,11 +168,10 @@ class PaillierSecretKey(SecretKey):
     # endregion
 
 
-KeyMaterial = tuple[PaillierPublicKey, PaillierSecretKey]
 Plaintext = Union[numbers.Integral, float, FixedPoint]
 
 
-class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int, int]):
+class PaillierCiphertext(AdditiveHomomorphicCiphertext[Plaintext, int, int]):
     """
     Ciphertext for the Paillier asymmetric encryption scheme. This ciphertext is rerandomizable
     and supports homomorphic operations.
@@ -200,18 +218,8 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
         :return: Boolean value representing (in)equality of both objects.
         """
         if not isinstance(other, PaillierCiphertext):
-            raise TypeError(
-                f"Expected comparison with another PaillierCiphertext, not {type(other)}"
-            )
+            return NotImplemented
         return self._raw_value == other._raw_value and self.scheme == other.scheme
-
-    def __hash__(self) -> int:
-        """
-        Hash this PaillierCiphertext.
-
-        :return: Hash of this PaillierCiphertext.
-        """
-        return hash((self._raw_value, self.scheme))
 
     def copy(self: PaillierCiphertext) -> PaillierCiphertext:
         """
@@ -226,10 +234,10 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
 
     class SerializedPaillierCiphertext(TypedDict):
         value: int
-        scheme: Paillier
+        scheme_id: int
 
     def serialize(
-        self, **_kwargs: Any
+        self, _opts: SerializerOpts
     ) -> PaillierCiphertext.SerializedPaillierCiphertext:
         r"""
         Serialization function for Paillier ciphertexts, which will be passed to the communication
@@ -238,65 +246,73 @@ class PaillierCiphertext(RandomizableCiphertext[KeyMaterial, Plaintext, int, int
         If the ciphertext is not fresh, it is randomized before serialization. After serialization,
         it is always marked as not fresh for security reasons.
 
-        :param \**_kwargs: optional extra keyword arguments
         :raise SerializationError: When communication library is not installed.
-        :return: serialized version of this PaillierCiphertext.
+        :return: Serialized version of this PaillierCiphertext.
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
         if not self.fresh:
             warnings.warn(
-                WARN_UNFRESH_SERIALIZATION, EncryptionSchemeWarning, stacklevel=2
+                WARN_UNFRESH_SERIALIZATION,
+                RandomizedEncryptionSchemeWarning,
+                stacklevel=2,
             )
             self.randomize()
         self._fresh = False
         return {
             "value": self._raw_value,
-            "scheme": self.scheme,
+            "scheme_id": self.scheme.identifier,
         }
 
     @staticmethod
     def deserialize(
-        obj: PaillierCiphertext.SerializedPaillierCiphertext, **_kwargs: Any
+        obj: PaillierCiphertext.SerializedPaillierCiphertext,
+        _opts: DeserializerOpts,
     ) -> PaillierCiphertext:
         r"""
         Deserialization function for Paillier ciphertexts, which will be passed to the
         communication module.
 
-        :param obj: serialized version of a PaillierCiphertext.
-        :param \**_kwargs: optional extra keyword arguments
+        :param obj: Serialized version of a PaillierCiphertext.
         :raise SerializationError: When communication library is not installed.
         :return: Deserialized PaillierCiphertext from the given dict.
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
-        ciphertext = PaillierCiphertext(
+        try:
+            scheme = Paillier.from_id(obj["scheme_id"])
+        except KeyError as exc:
+            raise SerializationError(
+                "The scheme that is associated with the provided serialized PaillierCiphertext is not known. Please ensure that the corresponding scheme is deserialized first."
+            ) from exc
+        return PaillierCiphertext(
             raw_value=obj["value"],
-            scheme=obj["scheme"],
+            scheme=scheme,
         )
-        return ciphertext
 
     # endregion
 
 
 class Paillier(
     AsymmetricEncryptionScheme[
-        KeyMaterial,
-        Plaintext,
-        int,
-        int,
-        PaillierCiphertext,
         PaillierPublicKey,
         PaillierSecretKey,
+        Plaintext,
+        int,
+        PaillierCiphertext,
     ],
-    RandomizedEncryptionScheme[
-        KeyMaterial, Plaintext, int, int, PaillierCiphertext, int
+    AdditiveHomomorphicEncryptionScheme[
+        tuple[PaillierPublicKey, PaillierSecretKey],
+        Plaintext,
+        int,
+        PaillierCiphertext,
+        int,
     ],
 ):
     """
     Paillier Encryption Scheme. This is an AsymmetricEncryptionScheme, with a public and secret key.
-    This is also a RandomizedEncryptionScheme, thus having internal randomness generation and
-    allowing for the use of precomputed randomness.
+    This is also a AdditiveHomomorphicEncryptionScheme, thus having internal randomness generation,
+    allowing for the use of precomputed randomness, and support for addition of ciphertexts.
     """
 
     public_key: PaillierPublicKey
@@ -329,7 +345,7 @@ class Paillier(
         AsymmetricEncryptionScheme.__init__(
             self, public_key=public_key, secret_key=secret_key
         )
-        RandomizedEncryptionScheme.__init__(
+        AdditiveHomomorphicEncryptionScheme.__init__(
             self,
             debug=debug,
         )
@@ -342,12 +358,15 @@ class Paillier(
         # over a communication channel
         self.share_secret_key = share_secret_key
 
-        self.client_history: list[HTTPClient] = []
+        if self.identifier not in self._instances:
+            self.save_globally()
 
     @staticmethod
     def generate_key_material(
         key_length: int,
-    ) -> KeyMaterial:  # pylint: disable=arguments-differ
+    ) -> tuple[
+        PaillierPublicKey, PaillierSecretKey
+    ]:  # pylint: disable=arguments-differ
         r"""
         Method to generate key material (PaillierPublicKey and PaillierPrivateKey).
 
@@ -450,10 +469,11 @@ class Paillier(
             negated.
         :return: PaillierCiphertext $c'$ corresponding to the negated plaintext.
         """
-        new_ciphertext_fresh = ciphertext.fresh
-        if new_ciphertext_fresh:
+        if new_ciphertext_fresh := ciphertext.fresh:
             warnings.warn(
-                WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning, stacklevel=2
+                WARN_INEFFICIENT_HOM_OPERATION,
+                RandomizedEncryptionSchemeWarning,
+                stacklevel=2,
             )
 
         # ciphertext.get_value() automatically marks ciphertext as not fresh
@@ -465,53 +485,54 @@ class Paillier(
 
     def add(
         self,
-        ciphertext_1: PaillierCiphertext,
-        ciphertext_2: PaillierCiphertext | Plaintext,
+        ciphertext: PaillierCiphertext,
+        other: PaillierCiphertext | Plaintext,
     ) -> PaillierCiphertext:
         r"""
         Secure addition.
 
-        If ciphertext_2 is another PaillierCiphertext $c_2$, add the underlying plaintext value of
-        ciphertext_1 $c_1$ with the underlying plaintext value of ciphertext_2. If it is a
-        Plaintext, we add the plaintext value $m_2$ to ciphertext_1, by first encryption it and
+        If other is another PaillierCiphertext $c_2$, add the underlying plaintext value of
+        ciphertext $c_1$ with the underlying plaintext value of other. If it is a
+        Plaintext, we add the plaintext value $m_2$ to ciphertext, by first encryption it and
         obtaining $c_2 = Enc(m_2)$. We then compute the result as $c' = c_1 \cdot c_2 \mod n^2$.
 
         The resulting ciphertext is fresh only if at least one of the inputs was fresh. Both inputs
         are marked as non-fresh after the operation.
 
-        :param ciphertext_1: First PaillierCiphertext $c_1$ of which the underlying plaintext is
+        :param ciphertext: First PaillierCiphertext $c_1$ of which the underlying plaintext is
             added.
-        :param ciphertext_2: Either a second PaillierCiphertext $c_2$ of which the underlying
+        :param other: Either a second PaillierCiphertext $c_2$ of which the underlying
             plaintext is added to the first. Or a plaintext $m_2$ that is added to the underlying
             plaintext of the first.
-        :raise AttributeError: When ciphertext_2 does not have the same public key as ciphertext_1.
+        :raise TypeError: When other is a ciphertext with a different scheme than ciphertext.
         :return: A PaillierCiphertext $c'$ containing the encryption of the addition of both values.
         """
-        if isinstance(ciphertext_2, get_args(Plaintext)):
-            ciphertext_2 = self.unsafe_encrypt(cast(Plaintext, ciphertext_2))
-        elif ciphertext_1.scheme != cast(PaillierCiphertext, ciphertext_2).scheme:
-            raise AttributeError(
+        if isinstance(other, get_args(Plaintext)):
+            other = self.unsafe_encrypt(cast(Plaintext, other))
+        elif ciphertext.scheme != cast(PaillierCiphertext, other).scheme:
+            raise TypeError(
                 "The scheme of your first ciphertext is not equal to the scheme of your second "
                 "ciphertext."
             )
-        ciphertext_2 = cast(PaillierCiphertext, ciphertext_2)
+        other = cast(PaillierCiphertext, other)
 
-        new_ciphertext_fresh = ciphertext_1.fresh or ciphertext_2.fresh
-        if new_ciphertext_fresh:
+        if new_ciphertext_fresh := ciphertext.fresh or other.fresh:
             warnings.warn(
-                WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning, stacklevel=2
+                WARN_INEFFICIENT_HOM_OPERATION,
+                RandomizedEncryptionSchemeWarning,
+                stacklevel=2,
             )
 
         # ciphertext.get_value() automatically marks ciphertext as not fresh
         return PaillierCiphertext(
-            ciphertext_1.get_value()
-            * ciphertext_2.get_value()
-            % self.public_key.n_squared,
+            ciphertext.get_value() * other.get_value() % self.public_key.n_squared,
             self,
             fresh=new_ciphertext_fresh,
         )
 
-    def mul(self, ciphertext: PaillierCiphertext, scalar: int) -> PaillierCiphertext:  # type: ignore[override]  # pylint: disable=arguments-renamed
+    def mul(
+        self, ciphertext: PaillierCiphertext, other: PaillierCiphertext | Plaintext
+    ) -> PaillierCiphertext:
         """
         Multiply the underlying plaintext value of ciph $c$ with the given scalar $s$.
 
@@ -521,33 +542,34 @@ class Paillier(
         non-fresh after the operation.
 
         :param ciphertext: PaillierCiphertext $c$ of which the underlying plaintext is multiplied.
-        :param scalar: A scalar $s$ with which the plaintext underlying ciph should be
+        :param other: A scalar $s$ with which the plaintext underlying ciph should be
             multiplied.
-        :raise TypeError: When the scalar is not an integer.
+        :raise NotImplementedError: When other is not an integer.
         :return: PaillierCiphertext $c'$ containing the encryption of the product of both values.
         """
         # This check is necessary to support both built-in integers and gmpy2 integers
         # - The mpz class from gmpy2 is registered as a virtual subclass of numbers.Integral. Static type checkers
         #   do not understand such dynamic typing constructions, so the stubs define mpz as a subclass of int, but
         #   the runtime check is done on `numbers.Integral`.
-        if not isinstance(scalar, numbers.Integral):
-            raise TypeError(
-                f"Type of  scalar (second multiplicand) should be an integer and not"
-                f" {type(scalar)}."
+        if not isinstance(other, numbers.Integral):
+            raise NotImplementedError(
+                f"Type of scalar (second multiplicand) should be an integer and not"
+                f" {type(other)}."
             )
-        if scalar < 0:
+        if (other := cast(int, other)) < 0:
             ciphertext = self.neg(ciphertext)
-            scalar = -scalar
+            other = -other
 
-        new_ciphertext_fresh = ciphertext.fresh
-        if new_ciphertext_fresh:
+        if new_ciphertext_fresh := ciphertext.fresh:
             warnings.warn(
-                WARN_INEFFICIENT_HOM_OPERATION, EncryptionSchemeWarning, stacklevel=2
+                WARN_INEFFICIENT_HOM_OPERATION,
+                RandomizedEncryptionSchemeWarning,
+                stacklevel=2,
             )
 
         # ciphertext.get_value() automatically marks ciphertext as not fresh
         return PaillierCiphertext(
-            pow_mod(ciphertext.get_value(), scalar, self.public_key.n_squared),
+            pow_mod(ciphertext.get_value(), other, self.public_key.n_squared),
             self,
             fresh=new_ciphertext_fresh,
         )
@@ -561,12 +583,9 @@ class Paillier(
         :param other: Object to compare this Paillier scheme with.
         :return: Boolean value representing (in)equality of both objects.
         """
-        # Equality should still hold if the secret key is not available
-        return (
-            isinstance(other, Paillier)
-            and self.precision == other.precision
-            and self.public_key == other.public_key
-        )
+        if not isinstance(other, Paillier):
+            return NotImplemented
+        return self.identifier == other.identifier
 
     def __hash__(self) -> int:
         """
@@ -738,48 +757,30 @@ class Paillier(
         :param precision: Precision of the Paillier instance
         :return: Identifier of the Paillier instance
         """
-        return hash((public_key, precision))
+        # We use hashlib to ensure consistent hashes over different system architectures.
+        h = hashlib.sha256()
+        pk_id = public_key.id()
+        h.update(pk_id.to_bytes(256 // 8, "big"))
+        h.update(_to_bytes(precision))
+        return int.from_bytes(h.digest(), "big")
 
     # region Serialization logic
 
-    class SerializedPaillier(TypedDict, total=False):
-        scheme_id: int
+    class SerializedPaillier(TypedDict):
         prec: int
         pubkey: PaillierPublicKey
-        seckey: PaillierSecretKey
+        seckey: NotRequired[PaillierSecretKey]
 
-    def serialize(
-        self,
-        *,
-        destination: HTTPClient | list[HTTPClient] | None = None,
-        **_kwargs: Any,
-    ) -> Paillier.SerializedPaillier:
+    def serialize(self, _opts: SerializerOpts) -> Paillier.SerializedPaillier:
         r"""
         Serialization function for Paillier schemes, which will be passed to the communication
         module. The sharing of the secret key depends on the attribute share_secret_key.
 
-        :param destination: HTTPClient representing where the message will go if applicable, can also be a list of
-            clients in case of a broadcast message.
-        :param \**_kwargs: optional extra keyword arguments
         :raise SerializationError: When communication library is not installed.
-        :return: serialized version of this Paillier scheme.
+        :return: Serialized version of this Paillier scheme.
         """
-        if isinstance(destination, HTTPClient):
-            destination = [destination]
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
-        if self.identifier not in self._instances:
-            self.save_globally()
-        if destination is not None and all(
-            d in self.client_history for d in destination
-        ):
-            return {
-                "scheme_id": self.identifier,
-            }
-        if destination is not None:
-            for dest in destination:
-                if dest not in self.client_history:
-                    self.client_history.append(dest)
         if self.share_secret_key:
             return self.serialize_with_secret_key()
         return self.serialize_without_secret_key()
@@ -791,7 +792,7 @@ class Paillier(
         Serialization function for Paillier schemes, that does include the secret key.
 
         :raise SerializationError: When communication library is not installed.
-        :return: serialized version of this Paillier scheme.
+        :return: Serialized version of this Paillier scheme.
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
@@ -806,7 +807,7 @@ class Paillier(
         Serialization function for Paillier schemes, that does not include the secret key.
 
         :raise SerializationError: When communication library is not installed.
-        :return: serialized version of this Paillier scheme (without the secret key).
+        :return: Serialized version of this Paillier scheme (without the secret key).
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
@@ -818,68 +819,62 @@ class Paillier(
     @staticmethod
     def deserialize(
         obj: Paillier.SerializedPaillier,
-        *,
-        origin: HTTPClient | None = None,
-        **_kwargs: Any,
+        _opts: DeserializerOpts,
     ) -> Paillier:
         r"""
         Deserialization function for Paillier schemes, which will be passed to
         the communication module.
 
-        :param obj: serialized version of a Paillier scheme.
-        :param origin: HTTPClient representing where the message came from if applicable
-        :param \**_kwargs: optional extra keyword arguments
+        :param obj: Serialized version of a Paillier scheme.
         :raise SerializationError: When communication library is not installed.
-        :raise ValueError: When a scheme is sent through ID without any prior communication of the
-            scheme
         :return: Deserialized Paillier scheme from the given dict. Might not have a secret
             key when that was not included in the received serialization.
         """
         if not COMMUNICATION_INSTALLED:
             raise SerializationError()
-        if "scheme_id" in obj:
-            paillier: Paillier = Paillier.from_id(obj["scheme_id"])
-            if origin is None:
-                raise ValueError(
-                    f"The scheme was sent through an ID, but the origin is {origin}"
-                )
-            if origin not in paillier.client_history:
-                raise ValueError(
-                    f"The scheme was sent through an ID by {origin.addr}:{origin.port}, "
-                    f"but this scheme was never"
-                    "communicated with this party"
-                )
+        pubkey = obj["pubkey"]
+        precision = obj["prec"]
+        # This piece of code is specifically used for the case where sending and receiving
+        # happens between hosts running the same python instance (local network).
+        # In this case, the Paillier scheme that was sent is already available before it
+        # arrives and does not need to be created anymore.
+        identifier = Paillier.id_from_arguments(public_key=pubkey, precision=precision)
+        if identifier in Paillier._instances:
+            paillier = Paillier.from_id(identifier)
         else:
-            pubkey = obj["pubkey"]
-            precision = obj["prec"]
-            # This piece of code is specifically used for the case where sending and receiving
-            # happens between hosts running the same python instance (local network).
-            # In this case, the Paillier scheme that was sent is already available before it
-            # arrives and does not need to be created anymore.
-            identifier = Paillier.id_from_arguments(
-                public_key=pubkey, precision=precision
+            paillier = Paillier(
+                public_key=pubkey,
+                secret_key=obj["seckey"] if "seckey" in obj else None,
+                precision=precision,
             )
-            if identifier in Paillier._instances:
-                paillier = Paillier.from_id(identifier)
-            else:
-                paillier = Paillier(
-                    public_key=pubkey,
-                    secret_key=obj["seckey"] if "seckey" in obj else None,
-                    precision=precision,
-                )
-                paillier.save_globally()
-        if origin is not None and origin not in paillier.client_history:
-            paillier.client_history.append(origin)
         return paillier
 
     # endregion
 
 
+def _to_bytes(n: typing.SupportsInt) -> bytes:
+    """
+    Unidirectional conversion from numbers.Integral to bytes.
+
+    :param n: Integer to convert.
+    :return: Byte representation of provided input.
+    """
+    from tno.mpc.encryption_schemes.utils import USE_GMPY2
+
+    if USE_GMPY2:
+        import gmpy2
+
+        if isinstance(n, gmpy2.mpz):
+            return gmpy2.to_binary(n)
+    n_int = int(n)
+    return n_int.to_bytes(n_int.bit_length() // 8 + 1, "little")
+
+
 if COMMUNICATION_INSTALLED:
     try:
-        Serialization.register_class(Paillier)
-        Serialization.register_class(PaillierCiphertext)
-        Serialization.register_class(PaillierPublicKey)
-        Serialization.register_class(PaillierSecretKey)
+        Serializer.register_class(Paillier)
+        Serializer.register_class(PaillierCiphertext)
+        Serializer.register_class(PaillierPublicKey)
+        Serializer.register_class(PaillierSecretKey)
     except RepetitionError:
         pass

@@ -18,5 +18,5 @@ contact:
 repository-code: https://github.com/TNO-MPC/encryption_schemes.paillier
 repository-artifact: https://pypi.org/project/tno.mpc.encryption_schemes.paillier
 title: TNO PET Lab - secure Multi-Party Computation (MPC) - Encryption Schemes - Paillier
-version: 3.2.0
+version: 4.0.0
 date-released: 2025-11-04

@@ -21,7 +21,7 @@ _This implementation of cryptographic software has not been audited. Use at your
 ## Documentation
 
 Documentation of the `tno.mpc.encryption_schemes.paillier` package can be found
-[here](https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/3.2.0).
+[here](https://docs.pet.tno.nl/mpc/encryption_schemes/paillier/4.0.0).
 
 ## Install
 
@@ -44,7 +44,15 @@ If you wish to run the tests you can use:
 $ python -m pip install 'tno.mpc.encryption_schemes.paillier[tests]'
 ```
 
-_Note:_ A significant performance improvement can be achieved by installing the GMPY2 library.
+The package naturally integrates with `tno.mpc.communication`. To ensure that you use a compatible version of that package, install with
+
+```console
+$ python -m pip install 'tno.mpc.encryption_schemes.paillier[communication]'
+```
+
+_Note: ensure to communicate the corresponding scheme before communicating ciphertexts._
+
+Finally, a significant performance improvement can be achieved by installing the GMPY2 library.
 
 ```console
 $ python -m pip install 'tno.mpc.encryption_schemes.paillier[gmpy]'
@@ -164,9 +172,9 @@ A more advanced approach is to generate the randomness a priori and store it. Th
 
 ```py
 from pathlib import Path
-from typing import List
+from typing import List, cast
 
-from tno.mpc.communication import Serialization
+from tno.mpc.communication import Serializer
 from tno.mpc.encryption_schemes.templates.random_sources import FileSource
 
 from tno.mpc.encryption_schemes.paillier import Paillier, PaillierCiphertext
@@ -178,12 +186,12 @@ def initialize_and_store_scheme() -> None:
 
     # Store without secret key for others
     with open(Path("scheme_without_secret_key"), "wb") as file:
-        file.write(Serialization.pack(scheme, msg_id="", use_pickle=False))
+        file.write(Serializer.serialize(scheme))
 
     # Store with secret key for own use
     scheme.share_secret_key = True
     with open(Path("scheme_with_secret_key"), "wb") as file:
-        file.write(Serialization.pack(scheme, msg_id="", use_pickle=False))
+        file.write(Serializer.serialize(scheme))
 
     # Tidy up to simulate real environment (program terminates)
     scheme.clear_instances()
@@ -193,7 +201,7 @@ def load_scheme(path: Path) -> Paillier:
     # Load scheme from disk
     with open(path, "rb") as file:
         scheme_raw = file.read()
-    return Serialization.unpack(scheme_raw)[1]
+    return cast(Paillier, Serializer.deserialize(scheme_raw))
 
 
 def pregenerate_randomness_in_weekend(

@@ -5,7 +5,7 @@ Root imports for the tno.mpc.encryption_schemes.paillier package.
 # Explicit re-export of all functionalities, such that they can be imported properly. Following
 # https://www.python.org/dev/peps/pep-0484/#stub-files and
 # https://mypy.readthedocs.io/en/stable/command_line.html#cmdoption-mypy-no-implicit-reexport
-from tno.mpc.encryption_schemes.templates.encryption_scheme import (
+from tno.mpc.encryption_schemes.templates import (
     EncryptionSchemeWarning as EncryptionSchemeWarning,
 )
 
@@ -20,4 +20,4 @@ from tno.mpc.encryption_schemes.paillier.paillier import (
     PaillierSecretKey as PaillierSecretKey,
 )
 
-__version__ = "3.2.0"
+__version__ = "4.0.0"
